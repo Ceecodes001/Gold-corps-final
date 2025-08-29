@@ -26,7 +26,7 @@ function Home() {
 
 function App() {
   return (
-    <BrowserRouter basename="/GoldcCorps">
+    <BrowserRouter basename="/Gold-corps-final">
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<LOGIN />} />
