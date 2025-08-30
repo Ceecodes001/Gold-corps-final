@@ -26,7 +26,7 @@ function Home() {
 
 function App() {
   return (
-    <HashRouter>
+     
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<LOGIN />} />
@@ -36,7 +36,7 @@ function App() {
         <Route path="/stock" element={<STOCK />} />
         <Route path="*" element={<NotFound />} /> {/* 404 fallback */}
       </Routes>
-    </HashRouter>
+  
   );
 }
 
