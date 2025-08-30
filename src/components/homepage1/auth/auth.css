@@ -129,3 +129,21 @@ body{
   text-decoration:none;
   color:white;
 }
+/* Add to your existing auth.css */
+.google-btn:disabled,
+.btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.input:disabled {
+  opacity: 0.7;
+  background-color: #f5f5f5;
+}
+
+.error-text {
+  color: #e74c3c;
+  margin-top: 10px;
+  display: block;
+  text-align: center;
+}

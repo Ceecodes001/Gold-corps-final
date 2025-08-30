@@ -74,9 +74,7 @@ const Signup = () => {
           <input className="input" required type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter your name" />
           <input className="input" required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
           <button type="submit" className="btn btn1">Sign Up</button>
-          <button type="button" className="google-btn" onClick={handleGoogleSignup}>
-            <FcGoogle className="google-icon" /> Signup with Google
-          </button>
+          
           <p>Already have an account? <Link to="/login" className="Login-txt">Login</Link></p>
           {error && <span className="error-text">{error}</span>}
         </form>
