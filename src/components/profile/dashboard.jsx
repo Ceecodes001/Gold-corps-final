@@ -63,7 +63,7 @@ const GOLD_PLANS = [
 const CRYPTO_WALLETS = [
   { type: "USDT (ERC20)", address: "0x2F549207342b44ADF00d25893580b23902f3137B" },
   { type: "TRON", address: "TNyKcnXh9GhANHaCgQyRdnXGmMc72ykQFC" },
-  { type: "DODGECOIN", address: "D7whXjWwZzsXqnfZdy3rSkBtvTbyefr4d4" }
+  { type: "DOGECOIN", address: "D7whXjWwZzsXqnfZdy3rSkBtvTbyefr4d4" }
 ];
 
 // Component for the Profile section

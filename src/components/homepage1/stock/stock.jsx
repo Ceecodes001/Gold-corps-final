@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+
 const RealtimeGoldPrice = () => {
   // State management
-  const [price, setPrice] = useState(0);
-  const [previousPrice, setPreviousPrice] = useState(0);
+  const [price, setPrice] = useState(null);
+  const [previousPrice, setPreviousPrice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currency, setCurrency] = useState('USD');
@@ -10,17 +11,37 @@ const RealtimeGoldPrice = () => {
   const [priceHistory, setPriceHistory] = useState([]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [threshold, setThreshold] = useState(5);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
   
   // Refs for animations
   const priceRef = useRef();
   const chartRef = useRef();
+  const retryTimeoutRef = useRef();
+
+  // Clear any pending retry timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Simulated API call to fetch gold price
   const fetchGoldPrice = async () => {
     try {
       setLoading(true);
       setError(null);
+      setConnectionStatus('connecting');
+      
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 700));
+      
+      // Simulate occasional API failures (10% chance)
+      if (Math.random() < 0.1) {
+        throw new Error('API server unavailable');
+      }
       
       // In a real application, this would be an actual API call
       // Simulating API response with random price fluctuation
@@ -31,13 +52,21 @@ const RealtimeGoldPrice = () => {
       if (priceRef.current) {
         priceRef.current.classList.add('price-updating');
         setTimeout(() => {
-          setPreviousPrice(price);
+          if (price !== null) {
+            setPreviousPrice(price);
+          }
           setPrice(newPrice);
           setLastUpdated(new Date());
+          setConnectionStatus('connected');
           if (priceRef.current) {
             priceRef.current.classList.remove('price-updating');
           }
         }, 500);
+      } else {
+        // Handle case when component might be unmounting
+        setPrice(newPrice);
+        setLastUpdated(new Date());
+        setConnectionStatus('connected');
       }
       
       // Update price history
@@ -47,8 +76,18 @@ const RealtimeGoldPrice = () => {
       });
       
     } catch (err) {
-      setError('Failed to fetch gold prices. Please try again later.');
+      const errorMsg = 'Failed to fetch gold prices. Please try again later.';
+      setError(errorMsg);
+      setConnectionStatus('error');
       console.error('Error fetching gold price:', err);
+      
+      // Auto-retry after 10 seconds on error
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+      retryTimeoutRef.current = setTimeout(() => {
+        fetchGoldPrice();
+      }, 10000);
     } finally {
       setLoading(false);
     }
@@ -56,7 +95,9 @@ const RealtimeGoldPrice = () => {
 
   // Check for significant price changes
   useEffect(() => {
-    if (previousPrice && Math.abs(price - previousPrice) > threshold && notificationsEnabled) {
+    if (previousPrice !== null && price !== null && 
+        Math.abs(price - previousPrice) > threshold && 
+        notificationsEnabled) {
       // Show browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Gold Price Alert', {
@@ -84,7 +125,12 @@ const RealtimeGoldPrice = () => {
       fetchGoldPrice();
     }, refreshInterval);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
   }, [refreshInterval, currency]);
 
   // Request notification permission
@@ -92,23 +138,39 @@ const RealtimeGoldPrice = () => {
     if ('Notification' in window) {
       Notification.requestPermission().then(permission => {
         setNotificationsEnabled(permission === 'granted');
+        if (permission !== 'granted') {
+          alert('Please enable notifications for price alerts');
+        }
       });
+    } else {
+      alert('This browser does not support notifications');
     }
   };
 
   // Calculate price change percentage
   const calculateChange = () => {
-    if (!previousPrice) return 0;
+    if (!previousPrice || price === null) return 0;
     return ((price - previousPrice) / previousPrice * 100).toFixed(2);
   };
 
   // Format currency based on selection
   const formatCurrency = (value) => {
+    if (value === null) return '--';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency,
       minimumFractionDigits: 2
     }).format(value);
+  };
+
+  // Get connection status indicator
+  const getConnectionStatus = () => {
+    switch(connectionStatus) {
+      case 'connected': return { text: 'Live', class: 'status-live' };
+      case 'connecting': return { text: 'Connecting...', class: 'status-connecting' };
+      case 'error': return { text: 'Connection Error', class: 'status-error' };
+      default: return { text: 'Unknown', class: '' };
+    }
   };
 
   // Render mini chart
@@ -139,19 +201,24 @@ const RealtimeGoldPrice = () => {
     );
   };
 
+  const status = getConnectionStatus();
+
   return (
     <div className="gold-price-tracker">
       <div className="tracker-header">
         <h2>
           <span className="gold-icon">🥇</span>
           Gold Price Tracker
+          <span className={`connection-status ${status.class}`}>
+            • {status.text}
+          </span>
         </h2>
         <div className="last-updated">
-          Last updated: {lastUpdated.toLocaleTimeString()}
+          {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Waiting for data...'}
         </div>
       </div>
       
-      {loading && (
+      {loading && price === null && (
         <div className="loading-state">
           <div className="spinner"></div>
           <p>Loading current gold price...</p>
@@ -162,16 +229,17 @@ const RealtimeGoldPrice = () => {
         <div className="error-state">
           <div className="error-icon">⚠️</div>
           <p>{error}</p>
-          <button onClick={fetchGoldPrice} className="retry-btn">Retry</button>
+          <p className="retry-info">Auto-retrying in 10 seconds...</p>
+          <button onClick={fetchGoldPrice} className="retry-btn">Retry Now</button>
         </div>
       )}
       
-      {!loading && !error && (
+      {!loading && price !== null && (
         <>
           <div className="price-display">
             <div ref={priceRef} className="current-price">
               {formatCurrency(price)}
-              {previousPrice && (
+              {previousPrice !== null && (
                 <span className={`price-change ${price >= previousPrice ? 'positive' : 'negative'}`}>
                   {price >= previousPrice ? '↗' : '↘'} 
                   {formatCurrency(Math.abs(price - previousPrice))} 
@@ -228,12 +296,13 @@ const RealtimeGoldPrice = () => {
         </div>
         
         <div className="control-group">
-          <label>
+          <label className="checkbox-label">
             <input 
               type="checkbox" 
               checked={notificationsEnabled}
               onChange={requestNotificationPermission}
             />
+            <span className="checkmark"></span>
             Price alerts
           </label>
         </div>
@@ -301,6 +370,29 @@ const RealtimeGoldPrice = () => {
           font-size: 1.8rem;
         }
         
+        .connection-status {
+          font-size: 0.7rem;
+          padding: 4px 8px;
+          border-radius: 12px;
+          margin-left: 10px;
+          font-weight: 500;
+        }
+        
+        .status-live {
+          background: rgba(72, 187, 120, 0.2);
+          color: #48bb78;
+        }
+        
+        .status-connecting {
+          background: rgba(246, 173, 85, 0.2);
+          color: #f6ad55;
+        }
+        
+        .status-error {
+          background: rgba(245, 101, 101, 0.2);
+          color: #f56565;
+        }
+        
         .last-updated {
           font-size: 0.85rem;
           color: #a0aec0;
@@ -340,6 +432,12 @@ const RealtimeGoldPrice = () => {
         .error-icon {
           font-size: 2rem;
           margin-bottom: 10px;
+        }
+        
+        .retry-info {
+          font-size: 0.9rem;
+          margin: 8px 0;
+          color: #a0aec0;
         }
         
         .retry-btn {
@@ -504,6 +602,62 @@ const RealtimeGoldPrice = () => {
           font-weight: 500;
         }
         
+        .checkbox-label {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+          position: relative;
+          padding-left: 30px;
+          margin-bottom: 0;
+        }
+        
+        .checkbox-label input {
+          position: absolute;
+          opacity: 0;
+          cursor: pointer;
+          height: 0;
+          width: 0;
+        }
+        
+        .checkmark {
+          position: absolute;
+          top: 0;
+          left: 0;
+          height: 20px;
+          width: 20px;
+          background-color: rgba(255, 255, 255, 0.1);
+          border-radius: 5px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        
+        .checkbox-label:hover input ~ .checkmark {
+          background-color: rgba(255, 255, 255, 0.15);
+        }
+        
+        .checkbox-label input:checked ~ .checkmark {
+          background-color: #FFD700;
+        }
+        
+        .checkmark:after {
+          content: "";
+          position: absolute;
+          display: none;
+        }
+        
+        .checkbox-label input:checked ~ .checkmark:after {
+          display: block;
+        }
+        
+        .checkbox-label .checkmark:after {
+          left: 7px;
+          top: 3px;
+          width: 5px;
+          height: 10px;
+          border: solid #1a2a3a;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
+        
         .control-select {
           background: rgba(255, 255, 255, 0.1);
           border: 1px solid rgba(255, 255, 255, 0.15);
@@ -535,6 +689,10 @@ const RealtimeGoldPrice = () => {
             flex-direction: column;
             align-items: flex-start;
             gap: 8px;
+          }
+          
+          .tracker-header h2 {
+            font-size: 1.3rem;
           }
           
           .last-updated {
@@ -598,6 +756,15 @@ const RealtimeGoldPrice = () => {
             background: rgba(0, 0, 0, 0.03);
             border: 1px solid rgba(0, 0, 0, 0.1);
             color: #2d3748;
+          }
+          
+          .checkmark {
+            background-color: rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+          }
+          
+          .checkbox-label:hover input ~ .checkmark {
+            background-color: rgba(0, 0, 0, 0.08);
           }
           
           .price-history h3 {
