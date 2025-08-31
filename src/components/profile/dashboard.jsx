@@ -53,7 +53,7 @@ const GOLD_PLANS = [
     id: 3,
     name: "PREMIUM PLAN",
     profitPercent: 50,
-    min: 100000,
+    min: 1000000,
     max: Infinity,
     duration: 30, // days
     description: "For premium investors building a substantial portfolio"
