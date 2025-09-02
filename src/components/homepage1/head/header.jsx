@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
+import { Link as ScrollLink } from 'react-scroll';
 
 function Header() {
   useEffect(() => {
@@ -46,16 +47,69 @@ function Header() {
             <input placeholder="Search..." className="search-bar" type="search" />
           </div>
 
-          {/* Single-page scrolling (anchors) */}
-          <a className="a" href="#home">Home</a>
-          <a className="a" href="#about">About us</a>
-          <a className="a" href="#contact">Contact us</a>
-          <a className="a" href="#services">Our services</a>
-          <a className="a" href="#team">Our team</a>
-          <a className="a" href="#testimonial">Testimonial</a>
+          {/* Single-page scrolling links */}
+          <ScrollLink
+            className="a"
+            to="home"
+            smooth={true}
+            duration={500}
+            offset={-70}
+          >
+            Home
+          </ScrollLink>
 
-          {/* React Router navigation */}
-          <Link className="a" to="/stock">Stock prices</Link>
+          <ScrollLink
+            className="a"
+            to="about"
+            smooth={true}
+            duration={500}
+            offset={-70}
+          >
+            About us
+          </ScrollLink>
+
+          <ScrollLink
+            className="a"
+            to="contact"
+            smooth={true}
+            duration={500}
+            offset={-70}
+          >
+            Contact us
+          </ScrollLink>
+
+          <ScrollLink
+            className="a"
+            to="services"
+            smooth={true}
+            duration={500}
+            offset={-70}
+          >
+            Our services
+          </ScrollLink>
+
+          <ScrollLink
+            className="a"
+            to="team"
+            smooth={true}
+            duration={500}
+            offset={-70}
+          >
+            Our team
+          </ScrollLink>
+
+          <ScrollLink
+            className="a"
+            to="testimonial"
+            smooth={true}
+            duration={500}
+            offset={-70}
+          >
+            Testimonial
+          </ScrollLink>
+
+          {/* React Router link stays as-is */}
+          <RouterLink className="a" to="/stock">Stock prices</RouterLink>
         </div>
       </nav>
     </div>

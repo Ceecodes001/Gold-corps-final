@@ -5,22 +5,13 @@ import {
   FaGlobe,
   FaChartLine,
   FaUsers,
-  FaRegClock,
   FaChevronLeft,
   FaChevronRight,
   FaPlay,
 } from "react-icons/fa";
- import './footer.css'
- import { Link } from 'react-router-dom';
-
-/**
- * Landing.jsx
- * Premium Goldfinance landing content component.
- * - Uses CSS-only shimmer & animations.
- * - Count-up for stats (no external libs).
- * - Testimonial carousel (pure React + setInterval).
- * - All text is written to sound authoritative & persuasive.
- */
+import "./footer.css";
+import { Link } from "react-router-dom";
+import { Link as ScrollLink } from "react-scroll"; // 👈 import react-scroll
 
 const STATS = [
   {
@@ -30,7 +21,7 @@ const STATS = [
     suffix: "+",
     sub: "Global investor community placing trust in our strategy",
     desc:
-      "Thousands of investors choose Goldfinance for long-term capital growth, risk-controlled exposure, and diversified access across assets.",
+      "Thousands of investors choose Gold corps for long-term capital growth, risk-controlled exposure, and diversified access across assets.",
   },
   {
     icon: <FaChartLine />,
@@ -72,26 +63,25 @@ const PARTNERS = [
 const TESTIMONIALS = [
   {
     quote:
-      "Goldfinance helped me diversify into real assets and crypto with clarity and confidence. Their team is responsive and deeply knowledgeable.",
+      "Gold corps helped me diversify into real assets and crypto with clarity and confidence. Their team is responsive and deeply knowledgeable.",
     name: "Maria J. Finck",
     title: "Business Owner",
   },
   {
     quote:
-      "From first contact to steady returns, Goldfinance delivered tangible results. Their approach is conservative where it must be, bold where it counts.",
+      "From first contact to steady returns, Gold corps delivered tangible results. Their approach is conservative where it must be, bold where it counts.",
     name: "Hajime Omuro",
     title: "Operations Manager",
   },
   {
     quote:
-      "I recommend Goldfinance for any investor looking to combine sustainability with performance—transparent and trustworthy.",
+      "I recommend Gold corps for any investor looking to combine sustainability with performance—transparent and trustworthy.",
     name: "James G. Wyatt",
     title: "Entrepreneur",
   },
 ];
 
 function useCountUp(selector = ".stat-value", duration = 1200) {
-  // simple count-up using requestAnimationFrame
   useEffect(() => {
     const els = document.querySelectorAll(selector);
     if (!els.length) return;
@@ -108,7 +98,6 @@ function useCountUp(selector = ".stat-value", duration = 1200) {
         if (progress < 1) {
           requestAnimationFrame(step);
         } else {
-          // on complete ensure exact
           el.textContent = `${target.toLocaleString()}${suffix}`;
         }
       };
@@ -118,39 +107,41 @@ function useCountUp(selector = ".stat-value", duration = 1200) {
 }
 
 export default function Landing() {
-  // testimonial carousel
   const [index, setIndex] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setIndex((i) => (i + 1) % TESTIMONIALS.length), 6000);
+    const t = setInterval(
+      () => setIndex((i) => (i + 1) % TESTIMONIALS.length),
+      6000
+    );
     return () => clearInterval(t);
   }, []);
 
   useCountUp(".stat-value", 1200);
 
-  // CTA email state (no network)
   const [email, setEmail] = useState("");
   const handleSubmit = (e) => {
     e.preventDefault();
-    // placeholder behaviour - integrate with backend as needed
     alert(`Thanks — we'll reach out to ${email}`);
     setEmail("");
   };
 
   return (
     <main className="gold-landing">
-      {/* HERO */}
-      <header className="hero-section">
-        <div className="hero-inner" >
-          <h1 className="hero-title" id='team'>
+      {/* HERO (Home) */}
+      <header className="hero-section" id="home">
+        <div className="hero-inner">
+          <h1 className="hero-title">
             Gold Corps — Building Enduring Wealth Across Gold, Copper, Agriculture & Crypto
           </h1>
-          <p className="hero-sub" >
+          <p className="hero-sub">
             Trusted by thousands across six countries, we blend resource expertise, trading precision,
             and sustainable practices to generate high-quality, long-term returns.
           </p>
 
           <div className="hero-cta">
-            <Link to="/signup" ><button className="btn btn-primary"> Get Started</button></Link>
+            <Link to="/signup">
+              <button className="btn btn-primary"> Get Started</button>
+            </Link>
             <button className="btn btn-outline">
               <FaPlay /> Watch Overview
             </button>
@@ -173,14 +164,14 @@ export default function Landing() {
         </div>
       </header>
 
-      {/* Partner & Awards */}
-      <section className="partners-section">
+      {/* Partner & Awards (About) */}
+      <section className="partners-section" id="about">
         <div className="container">
           <h2>
             <FaAward className="icon" /> Partner Companies & Recognitions
           </h2>
           <p className="muted">
-            Goldfinance is recognized for innovation, transparency, and bridging traditional finance with the digital future.
+            Gold corps is recognized for innovation, transparency, and bridging traditional finance with the digital future.
             Our partners and award bodies span investment, sustainability and technology sectors.
           </p>
 
@@ -194,12 +185,12 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Why Choose Us */}
-      <section className="why-section">
+      {/* Why Choose Us (Services) */}
+      <section className="why-section" id="services">
         <div className="container split">
           <div className="col">
             <h2>
-              <FaHandshake className="icon" /> Why Choose Goldfinance
+              <FaHandshake className="icon" /> Why Choose Gold corps
             </h2>
             <p className="muted">
               We combine disciplined capital allocation, deep technical knowledge, and a relentless focus on risk
@@ -251,48 +242,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="how-section">
-        <div className="container">
-          <h2>
-            <FaChartLine className="icon" /> How It Works — Simple, Transparent, Profitable
-          </h2>
-
-          <ol className="steps">
-            <li>
-              <strong>Refer & Qualify</strong> — Invite new investors who deposit $100 or more.
-            </li>
-            <li>
-              <strong>Acquisition</strong> — Our affiliate & media teams deploy targeted campaigns ($20–$40 per qualified lead).
-            </li>
-            <li>
-              <strong>Profit Split</strong> — A properly qualified referral generates $60–$80 in net value; volume scales returns.
-            </li>
-          </ol>
-
-          <div className="mini-case">
-            <strong>Example (25 referrals)</strong>
-            <div className="case-grid">
-              <div>
-                <span className="case-number">$2,000</span>
-                <div className="case-label">Estimated Expense</div>
-              </div>
-              <div>
-                <span className="case-number">$6,000–$8,000</span>
-                <div className="case-label">Projected Profit</div>
-              </div>
-            </div>
-          </div>
-
-          <p className="muted small">
-            Affiliate success requires marketing expertise, a tested funnel and an operating budget — all of which we
-            provide through our partners and proven teams.
-          </p>
-        </div>
-      </section>
-
-      {/* Stats */}
-      <section className="stats-section">
+      {/* Stats (Team) */}
+      <section className="stats-section" id="team">
         <div className="container">
           <h2>
             <FaGlobe className="icon" /> Key Metrics & Performance
@@ -327,23 +278,14 @@ export default function Landing() {
             <h2>Our Miners — Reliability & Consistency</h2>
             <p className="muted">
               Since 2022, our mining and operations teams have consistently met investor obligations and optimized output
-              across multiple sites. With five years of on-the-ground experience in asset development and day-to-day operations,
-              our teams are trained for safe, high-quality production.
+              across multiple sites.
             </p>
-
             <ul className="miner-list">
-              <li>
-                <strong>Operational Excellence</strong> — Rigid maintenance and safety regimes ensure uptime and reliability.
-              </li>
-              <li>
-                <strong>Local Partnerships</strong> — Working with communities and regulators to ensure sustainable outcomes.
-              </li>
-              <li>
-                <strong>Transparent Payments</strong> — Reliable payouts and investor reporting are built into our processes.
-              </li>
+              <li><strong>Operational Excellence</strong> — Rigid maintenance and safety regimes ensure uptime and reliability.</li>
+              <li><strong>Local Partnerships</strong> — Working with communities and regulators to ensure sustainable outcomes.</li>
+              <li><strong>Transparent Payments</strong> — Reliable payouts and investor reporting are built into our processes.</li>
             </ul>
           </div>
-
           <aside className="col panel">
             <h3>Geographic Reach</h3>
             <div className="geo-grid">
@@ -358,10 +300,10 @@ export default function Landing() {
       </section>
 
       {/* Testimonials */}
-      <section className="testimonials-section">
+      <section className="testimonials-section" id="testimonial">
         <div className="container">
           <h2>
-            <FaUsers className="icon" id="testimonial" /> Investor Testimonials
+            <FaUsers className="icon" /> Investor Testimonials
           </h2>
 
           <div className="test-carousel">
@@ -421,33 +363,28 @@ export default function Landing() {
       <footer className="site-footer">
         <div className="container footer-grid">
           <div>
-            <h4>Goldfinance</h4>
+            <h4>Gold corps</h4>
             <p className="muted small">Multi-asset investing across gold, copper, agriculture & crypto.</p>
           </div>
 
           <div>
             <h5>Company</h5>
             <ul>
-              <li>About</li>
-              <li>Leadership</li>
-              <li>Careers</li>
-              <li>Contact</li>
+              <li><ScrollLink to="home" smooth={true} duration={600}>Home</ScrollLink></li>
+              <li><ScrollLink to="about" smooth={true} duration={600}>About</ScrollLink></li>
+              <li><ScrollLink to="services" smooth={true} duration={600}>Services</ScrollLink></li>
+              <li><ScrollLink to="team" smooth={true} duration={600}>Team</ScrollLink></li>
+              <li><ScrollLink to="testimonial" smooth={true} duration={600}>Testimonials</ScrollLink></li>
+              <li><ScrollLink to="contact" smooth={true} duration={600}>Contact</ScrollLink></li>
             </ul>
           </div>
 
           <div>
-            <h5>Resources</h5>
-            <ul>
-              <li>FAQ</li>
-              <li>Pricing Plans</li>
-              <li>Legal Notice</li>
-              <li>Privacy Policy</li>
-            </ul>
           </div>
         </div>
 
         <div className="footer-bottom">
-          <small>© {new Date().getFullYear()} Goldfinance. All rights reserved.</small>
+          <small>© {new Date().getFullYear()} Gold corps. All rights reserved.</small>
         </div>
       </footer>
     </main>
