@@ -1,6 +1,5 @@
 {
   "name": "gold-corps",
-  "homepage": "https://ceecodes001.github.io/Gold-corps-final/",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist -b gh-pages -c goldcorps.org"
+    "deploy": "gh-pages -d dist -b gh-pages"
   },
   "dependencies": {
     "chart.js": "^4.5.0",
