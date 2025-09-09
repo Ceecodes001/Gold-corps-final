@@ -11,7 +11,10 @@ import SIGNUP from "./components/homepage1/auth/signup";
 import STOCK from "./components/homepage1/stock/stock";
 import PROFILE from "./components/profile/profile";
 import NotFound from "./components/error/404";
-
+import ADMIN from './components/admin/admin'
+import MESSAGE from './components/admin/message'
+import TRANSACTION from './components/admin/transaction'
+import ADMINAUTH from './components/admin/adminauth'
 function Home() {
   return (
     <>
@@ -33,7 +36,11 @@ function App() {
         <Route path="/signup" element={<SIGNUP />} />
         <Route path="/dashboard" element={<DASHBOARD />} />
         <Route path="/profile" element={<PROFILE />} />
+         <Route path="/messages" element={<MESSAGE />} />
+<Route path="/management" element={<TRANSACTION />} />
         <Route path="/stock" element={<STOCK />} />
+        <Route path="/admin" element={<ADMIN />} />
+        <Route path="/admin-login" element={<ADMINAUTH />} />
         <Route path="*" element={<NotFound />} /> {/* 404 fallback */}
       </Routes>
   

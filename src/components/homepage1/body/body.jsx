@@ -38,7 +38,7 @@ function Body() {
 
         {/* Signup rewired */}
         <Link to="/signup" >
-        <button className="btn btn1">signup</button>
+        <button className="btn btn1">Signup</button>
         </Link>
 
         <button className="btn">Subscribe to our newsletter</button>
