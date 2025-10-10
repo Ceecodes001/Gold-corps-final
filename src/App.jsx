@@ -15,6 +15,7 @@ import ADMIN from './components/admin/admin'
 import MESSAGE from './components/admin/message'
 import TRANSACTION from './components/admin/transaction'
 import ADMINAUTH from './components/admin/adminauth'
+
 function Home() {
   return (
     <>
@@ -22,7 +23,9 @@ function Home() {
       <BODY />
       <BODYC />
       <STATS />
+     
       <FOOTER />
+      
     </>
   );
 }

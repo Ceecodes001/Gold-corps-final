@@ -12,6 +12,7 @@ import {
 import "./footer.css";
 import { Link } from "react-router-dom";
 import { Link as ScrollLink } from "react-scroll"; // 👈 import react-scroll
+import GoldPlansSection from "../body-content/gold-plans";
 
 const STATS = [
   {
@@ -139,9 +140,7 @@ export default function Landing() {
           </p>
 
           <div className="hero-cta">
-            <Link to="/signup">
-              <button className="btn btn-primary"> Get Started</button>
-            </Link>
+             
             <button className="btn btn-outline">
               <FaPlay /> Watch Overview
             </button>
@@ -270,6 +269,11 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+
+
+<GoldPlansSection />
+
 
       {/* Miners / Experience */}
       <section className="miners-section">
