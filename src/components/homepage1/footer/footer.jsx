@@ -129,39 +129,7 @@ export default function Landing() {
   return (
     <main className="gold-landing">
       {/* HERO (Home) */}
-      <header className="hero-section" id="home">
-        <div className="hero-inner">
-          <h1 className="hero-title">
-            Gold Corps — Building Enduring Wealth Across Gold, Copper, Agriculture & Crypto
-          </h1>
-          <p className="hero-sub">
-            Trusted by thousands across six countries, we blend resource expertise, trading precision,
-            and sustainable practices to generate high-quality, long-term returns.
-          </p>
-
-          <div className="hero-cta">
-             
-            <button className="btn btn-outline">
-              <FaPlay /> Watch Overview
-            </button>
-          </div>
-
-          <div className="hero-stats">
-            <div className="stat-inline">
-              <span className="big">6+</span>
-              <span className="label">Countries</span>
-            </div>
-            <div className="stat-inline">
-              <span className="big">3,000+</span>
-              <span className="label">Investors</span>
-            </div>
-            <div className="stat-inline">
-              <span className="big">80%</span>
-              <span className="label">Recent Growth</span>
-            </div>
-          </div>
-        </div>
-      </header>
+      <GoldPlansSection />
 
       {/* Partner & Awards (About) */}
       <section className="partners-section" id="about">
@@ -271,8 +239,41 @@ export default function Landing() {
       </section>
 
 
+      <header className="hero-section" id="home">
+        <div className="hero-inner">
+          <h1 className="hero-title">
+            Gold Corps — Building Enduring Wealth Across Gold, Copper, Agriculture & Crypto
+          </h1>
+          <p className="hero-sub">
+            Trusted by thousands across six countries, we blend resource expertise, trading precision,
+            and sustainable practices to generate high-quality, long-term returns.
+          </p>
 
-<GoldPlansSection />
+          <div className="hero-cta">
+             
+            <button className="btn btn-outline">
+              <FaPlay /> Watch Overview
+            </button>
+          </div>
+
+          <div className="hero-stats">
+            <div className="stat-inline">
+              <span className="big">6+</span>
+              <span className="label">Countries</span>
+            </div>
+            <div className="stat-inline">
+              <span className="big">3,000+</span>
+              <span className="label">Investors</span>
+            </div>
+            <div className="stat-inline">
+              <span className="big">80%</span>
+              <span className="label">Recent Growth</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+
 
 
       {/* Miners / Experience */}
