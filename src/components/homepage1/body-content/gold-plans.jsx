@@ -18,7 +18,7 @@ const GOLD_PLANS = [
     name: "MASTERS PLAN", 
     profitPercent: 30,
     min: 20000,
-    max: 99999,
+    max: 999999,
     duration: 14,
     description: "Ideal for consistent wealth accumulation",
     features: ["Higher returns", "Medium-term investment", "Portfolio tracking", "Priority support"]
