@@ -12,9 +12,11 @@ import {
   FaUsers, FaEye, FaBan, FaCheckCircle, FaTimesCircle,
   FaHistory, FaCog, FaUserCheck, FaUserClock, FaCoins,
   FaFilter, FaDownload, FaCalendar, FaChartBar,
-  FaArrowUp, FaArrowDown, FaMoneyCheckAlt, FaIdCard
+  FaArrowUp, FaArrowDown, FaMoneyCheckAlt, FaIdCard,
+   
 } from "react-icons/fa";
 import { getAuth, signOut } from "firebase/auth";
+import TransactionApprovalDashboard from "./transaction.jsx"; // Import the transaction component
 
 // Hardcoded admin UID
 const ADMIN_UID = "tSkkQjMfTMNhpqK92TxjvGVPUWa2";
@@ -25,7 +27,7 @@ const AdminDashboard = () => {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [newMessage, setNewMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sortOrder, setSortOrder] = useState("newest");
   const [activeFilter, setActiveFilter] = useState("all");
@@ -37,7 +39,6 @@ const AdminDashboard = () => {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [transactions, setTransactions] = useState([]);
   const [users, setUsers] = useState([]);
-  const [userActivities, setUserActivities] = useState([]);
   const [analytics, setAnalytics] = useState({
     totalUsers: 0,
     activeToday: 0,
@@ -57,9 +58,7 @@ const AdminDashboard = () => {
         setIsAdmin(true);
         setAuthChecked(true);
         fetchConversations();
-        fetchTransactions();
         fetchUsers();
-        calculateAnalytics();
       } else {
         setIsAdmin(false);
         setAuthChecked(true);
@@ -75,7 +74,6 @@ const AdminDashboard = () => {
     if (isAdmin && autoRefreshEnabled) {
       refreshIntervalRef.current = setInterval(() => {
         fetchConversations();
-        fetchTransactions();
         fetchUsers();
       }, 10000); // Refresh every 10 seconds
     }
@@ -98,7 +96,6 @@ const AdminDashboard = () => {
   // Fetch all conversations only if admin
   useEffect(() => {
     if (isAdmin) {
-      setLoading(true);
       fetchConversations();
     }
   }, [sortOrder, isAdmin]);
@@ -145,26 +142,6 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchTransactions = async () => {
-    if (!isAdmin) return;
-    
-    try {
-      // Get all transactions
-      const q = query(collection(db, "transactions"), orderBy("timestamp", "desc"));
-      const querySnapshot = await getDocs(q);
-      
-      const transactionsData = [];
-      querySnapshot.forEach((doc) => {
-        transactionsData.push({ id: doc.id, ...doc.data() });
-      });
-      
-      setTransactions(transactionsData);
-    } catch (error) {
-      console.error("Error fetching transactions:", error);
-      setError("Failed to load transactions.");
-    }
-  };
-
   const fetchUsers = async () => {
     if (!isAdmin) return;
     
@@ -179,14 +156,14 @@ const AdminDashboard = () => {
       });
       
       setUsers(usersData);
-      calculateAnalytics(usersData, transactions);
+      calculateAnalytics(usersData);
     } catch (error) {
       console.error("Error fetching users:", error);
       setError("Failed to load users.");
     }
   };
 
-  const calculateAnalytics = (usersData = users, transactionsData = transactions) => {
+  const calculateAnalytics = (usersData = users) => {
     if (!isAdmin) return;
     
     // Calculate analytics based on available data
@@ -195,18 +172,11 @@ const AdminDashboard = () => {
     // For demo purposes, set active users to 30% of total
     const activeToday = Math.round(usersData.length * 0.3);
     
-    const totalDeposits = transactionsData
-      .filter(t => t.type === "deposit" && t.status === "completed")
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-    
-    const totalWithdrawals = transactionsData
-      .filter(t => t.type === "withdrawal" && t.status === "completed")
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-    
-    const pendingTransactions = transactionsData.filter(t => t.status === "pending").length;
-    
-    // Calculate revenue (deposits - withdrawals)
-    const totalRevenue = totalDeposits - totalWithdrawals;
+    // Since we removed transactions from main dashboard, set these to 0
+    const totalDeposits = 0;
+    const totalWithdrawals = 0;
+    const pendingTransactions = 0;
+    const totalRevenue = 0;
     
     setAnalytics({
       totalUsers,
@@ -412,6 +382,18 @@ const AdminDashboard = () => {
     setAutoRefreshEnabled(!autoRefreshEnabled);
   };
 
+  // Handle user view action
+  const handleViewUser = (user) => {
+    alert(`View user: ${user.email}`);
+    // You can implement modal or detailed view here
+  };
+
+  // Handle user edit action
+  const handleEditUser = (user) => {
+    alert(`Edit user: ${user.email}`);
+    // You can implement edit functionality here
+  };
+
   // Show loading while checking authentication
   if (!authChecked) {
     return (
@@ -443,7 +425,7 @@ const AdminDashboard = () => {
       <div className="admin-header">
         <div className="header-title">
           <h1>Admin Dashboard</h1>
-          <p>Manage users, transactions, and customer support</p>
+          <p>Manage users, conversations, and system analytics</p>
         </div>
         <div className="header-actions">
           <div className="refresh-controls">
@@ -451,10 +433,8 @@ const AdminDashboard = () => {
               className={`btn-refresh ${autoRefreshEnabled ? 'active' : ''}`}
               onClick={() => {
                 fetchConversations();
-                fetchTransactions();
                 fetchUsers();
               }}
-              disabled={refreshing}
             >
               <FaSync className={refreshing ? "spinning" : ""} /> 
               {refreshing ? "Refreshing..." : "Refresh Now"}
@@ -525,7 +505,7 @@ const AdminDashboard = () => {
           className={`tab-button ${activeTab === "transactions" ? "active" : ""}`}
           onClick={() => setActiveTab("transactions")}
         >
-          <FaMoneyBill /> Transactions
+        Transaction Approval
         </button>
         <button 
           className={`tab-button ${activeTab === "chat" ? "active" : ""}`}
@@ -630,10 +610,16 @@ const AdminDashboard = () => {
                         <td>{user.lastActive ? formatTime(user.lastActive) : "N/A"}</td>
                         <td>
                           <div className="action-buttons">
-                            <button className="btn-view">
+                            <button 
+                              className="btn-view"
+                              onClick={() => handleViewUser(user)}
+                            >
                               <FaEye /> View
                             </button>
-                            <button className="btn-edit">
+                            <button 
+                              className="btn-edit"
+                              onClick={() => handleEditUser(user)}
+                            >
                               <FaCog /> Edit
                             </button>
                           </div>
@@ -656,110 +642,7 @@ const AdminDashboard = () => {
         
         {activeTab === "transactions" && (
           <div className="transactions-tab">
-            <h2>Transaction History</h2>
-            
-            <div className="transaction-filters">
-              <div className="search-box">
-                <FaSearch />
-                <input
-                  type="text"
-                  placeholder="Search transactions..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              
-              <div className="filter-controls">
-                <div className="filter-buttons">
-                  <button 
-                    className={activeFilter === "all" ? "active" : ""}
-                    onClick={() => setActiveFilter("all")}
-                  >
-                    All
-                  </button>
-                  <button 
-                    className={activeFilter === "deposit" ? "active" : ""}
-                    onClick={() => setActiveFilter("deposit")}
-                  >
-                    Deposits
-                  </button>
-                  <button 
-                    className={activeFilter === "withdrawal" ? "active" : ""}
-                    onClick={() => setActiveFilter("withdrawal")}
-                  >
-                    Withdrawals
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            <div className="transactions-table-container">
-              <table className="transactions-table">
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Type</th>
-                    <th>Amount</th>
-                    <th>Gold</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions
-                    .filter(t => {
-                      if (activeFilter === "all") return true;
-                      return t.type === activeFilter;
-                    })
-                    .filter(t => {
-                      if (!searchTerm) return true;
-                      const term = searchTerm.toLowerCase();
-                      return (
-                        t.userId.toLowerCase().includes(term) ||
-                        (t.userName && t.userName.toLowerCase().includes(term)) ||
-                        t.type.toLowerCase().includes(term) ||
-                        (t.amount && t.amount.toString().includes(term))
-                      );
-                    })
-                    .map(transaction => (
-                      <tr key={transaction.id}>
-                        <td>
-                          <div className="user-cell">
-                            <div className="user-avatar-sm">
-                              {getUserInitials(transaction.userName || "Unknown User")}
-                            </div>
-                            <div>
-                              <div className="user-name">{transaction.userName || "Unknown User"}</div>
-                              <div className="user-id">ID: {transaction.userId.substring(0, 8)}...</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`transaction-type ${transaction.type}`}>
-                            {transaction.type}
-                          </span>
-                        </td>
-                        <td>{formatCurrency(transaction.amount)}</td>
-                        <td>{transaction.goldAmount ? `${transaction.goldAmount.toFixed(4)}g` : "N/A"}</td>
-                        <td>{formatTime(transaction.timestamp)}</td>
-                        <td>
-                          <span className={`status-indicator ${transaction.status}`}>
-                            {transaction.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  }
-                </tbody>
-              </table>
-              
-              {transactions.length === 0 && (
-                <div className="no-data">
-                  <FaMoneyBill size={48} />
-                  <p>No transactions found</p>
-                </div>
-              )}
-            </div>
+            <TransactionApprovalDashboard />
           </div>
         )}
         
@@ -910,18 +793,12 @@ const AdminDashboard = () => {
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         placeholder="Type your response..."
-                        disabled={sending}
                       />
                       <button
                         type="submit"
-                        disabled={sending || !newMessage.trim()}
                         className="btn-send"
                       >
-                        {sending ? 'Sending...' : (
-                          <>
-                            <FaReply /> Send
-                          </>
-                        )}
+                        <FaReply /> Send
                       </button>
                     </div>
                   </form>
@@ -1099,6 +976,12 @@ const AdminDashboard = () => {
           align-items: center;
           gap: 8px;
           font-size: 14px;
+          transition: all 0.3s ease;
+        }
+        
+        .btn-refresh:hover, .btn-auto-refresh:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
         }
         
         .btn-refresh.active, .btn-auto-refresh.active {
@@ -1107,6 +990,10 @@ const AdminDashboard = () => {
         
         .btn-auto-refresh {
           background: #95a5a6;
+        }
+        
+        .btn-auto-refresh:hover {
+          background: #7f8c8d;
         }
         
         .btn-signout {
@@ -1120,11 +1007,13 @@ const AdminDashboard = () => {
           align-items: center;
           gap: 8px;
           font-size: 14px;
+          transition: all 0.3s ease;
         }
         
-        .btn-refresh:disabled {
-          background: #bdc3c7;
-          cursor: not-allowed;
+        .btn-signout:hover {
+          background: #c0392b;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
         }
         
         .spinning {
@@ -1199,6 +1088,12 @@ const AdminDashboard = () => {
           border-radius: 8px;
           min-width: 120px;
           box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+          transition: all 0.3s ease;
+        }
+        
+        .stat-item:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
         
         .stat-item.revenue {
@@ -1244,6 +1139,11 @@ const AdminDashboard = () => {
           gap: 8px;
           font-size: 14px;
           color: #7f8c8d;
+          transition: all 0.3s ease;
+        }
+        
+        .tab-button:hover {
+          background: #f8f9fa;
         }
         
         .tab-button.active {
@@ -1266,7 +1166,11 @@ const AdminDashboard = () => {
           border-bottom: 1px solid #eee;
         }
         
-        .transaction-filters, .user-filters {
+        .transactions-tab {
+          min-height: 500px;
+        }
+        
+        .user-filters {
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -1293,6 +1197,13 @@ const AdminDashboard = () => {
           border: 1px solid #ddd;
           border-radius: 5px;
           font-size: 14px;
+          transition: all 0.3s ease;
+        }
+        
+        .search-box input:focus {
+          outline: none;
+          border-color: #3498db;
+          box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
         }
         
         .filter-buttons {
@@ -1307,6 +1218,11 @@ const AdminDashboard = () => {
           border-radius: 5px;
           cursor: pointer;
           font-size: 13px;
+          transition: all 0.3s ease;
+        }
+        
+        .filter-buttons button:hover {
+          background: #e9ecef;
         }
         
         .filter-buttons button.active {
@@ -1315,18 +1231,18 @@ const AdminDashboard = () => {
           border-color: #3498db;
         }
         
-        .transactions-table-container, .users-table-container {
+        .users-table-container {
           overflow-x: auto;
           border-radius: 8px;
           border: 1px solid #eee;
         }
         
-        .transactions-table, .users-table {
+        .users-table {
           width: 100%;
           border-collapse: collapse;
         }
         
-        .transactions-table th, .users-table th {
+        .users-table th {
           background: #f8f9fa;
           padding: 12px 15px;
           text-align: left;
@@ -1335,13 +1251,13 @@ const AdminDashboard = () => {
           border-bottom: 1px solid #eee;
         }
         
-        .transactions-table td, .users-table td {
+        .users-table td {
           padding: 12px 15px;
           border-bottom: 1px solid #f1f3f4;
           color: #2c3e50;
         }
         
-        .transactions-table tr:hover, .users-table tr:hover {
+        .users-table tr:hover {
           background: #f8f9fa;
         }
         
@@ -1374,23 +1290,6 @@ const AdminDashboard = () => {
           color: #7f8c8d;
         }
         
-        .transaction-type {
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 12px;
-          font-weight: 500;
-        }
-        
-        .transaction-type.deposit {
-          background: #d4edda;
-          color: #155724;
-        }
-        
-        .transaction-type.withdrawal {
-          background: #f8d7da;
-          color: #721c24;
-        }
-        
         .status-indicator {
           display: inline-flex;
           align-items: center;
@@ -1398,21 +1297,6 @@ const AdminDashboard = () => {
           border-radius: 12px;
           font-size: 12px;
           font-weight: 500;
-        }
-        
-        .status-indicator.pending {
-          background: #fff3cd;
-          color: #856404;
-        }
-        
-        .status-indicator.completed {
-          background: #d4edda;
-          color: #155724;
-        }
-        
-        .status-indicator.rejected {
-          background: #f8d7da;
-          color: #721c24;
         }
         
         .status-indicator.online {
@@ -1439,11 +1323,29 @@ const AdminDashboard = () => {
           display: flex;
           align-items: center;
           gap: 4px;
+          transition: all 0.3s ease;
         }
         
-        .btn-view, .btn-edit {
-          background: #e2e3e5;
-          color: #383d41;
+        .btn-view {
+          background: #3498db;
+          color: white;
+        }
+        
+        .btn-view:hover {
+          background: #2980b9;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(52, 152, 219, 0.2);
+        }
+        
+        .btn-edit {
+          background: #6c757d;
+          color: white;
+        }
+        
+        .btn-edit:hover {
+          background: #545b62;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(108, 117, 125, 0.2);
         }
         
         .no-data {
@@ -1473,6 +1375,12 @@ const AdminDashboard = () => {
           border-radius: 10px;
           padding: 20px;
           box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+          transition: all 0.3s ease;
+        }
+        
+        .analytics-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
         
         .analytics-header {
@@ -1592,16 +1500,18 @@ const AdminDashboard = () => {
           padding: 15px;
           border-bottom: 1px solid #f1f3f4;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: all 0.3s ease;
           position: relative;
         }
         
         .conversation-item:hover {
           background: #f8f9fa;
+          transform: translateX(2px);
         }
         
         .conversation-item.active {
           background: #e3f2fd;
+          border-left: 3px solid #3498db;
         }
         
         .conversation-item.unread {
@@ -1621,7 +1531,7 @@ const AdminDashboard = () => {
           margin-right: 15px;
           flex-shrink: 0;
           font-weight: bold;
-          font-size: 极4px;
+          font-size: 14px;
         }
         
         .conversation-details {
@@ -1729,7 +1639,7 @@ const AdminDashboard = () => {
         }
         
         .user-avatar {
-          width: 50极;
+          width: 50px;
           height: 50px;
           border-radius: 50%;
           background: #3498db;
@@ -1760,6 +1670,12 @@ const AdminDashboard = () => {
         .message {
           display: flex;
           gap: 10px;
+          animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(5px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         
         .user-message {
@@ -1778,7 +1694,7 @@ const AdminDashboard = () => {
           background: #e0e0e0;
           display: flex;
           align-items: center;
-         极ustify-content: center;
+          justify-content: center;
           font-weight: bold;
           font-size: 12px;
           flex-shrink: 0;
@@ -1794,6 +1710,12 @@ const AdminDashboard = () => {
           padding: 12px 16px;
           border-radius: 18px;
           position: relative;
+          animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateX(-10px); }
+          to { opacity: 1; transform: translateX(0); }
         }
         
         .user-message .message-content {
@@ -1851,14 +1773,16 @@ const AdminDashboard = () => {
           border: 1px solid #ddd;
           outline: none;
           font-size: 14px;
+          transition: all 0.3s ease;
         }
         
         .input-container input:focus {
           border-color: #3498db;
+          box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
         }
         
         .btn-send {
-          padding: 10极 20px;
+          padding: 10px 20px;
           background: #3498db;
           color: white;
           border: none;
@@ -1868,11 +1792,20 @@ const AdminDashboard = () => {
           align-items: center;
           gap: 5px;
           font-size: 14px;
+          transition: all 0.3s ease;
+        }
+        
+        .btn-send:hover {
+          background: #2980b9;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
         }
         
         .btn-send:disabled {
           background: #bdc3c7;
           cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
         }
         
         .no-conversation-selected {
@@ -1915,7 +1848,7 @@ const AdminDashboard = () => {
           width: 40px;
           height: 40px;
           border: 4px solid #f3f3f3;
-          border-top: 4px极 #3498db;
+          border-top: 4px solid #3498db;
           border-radius: 50%;
           animation: spin 1s linear infinite;
           margin-bottom: 15px;
@@ -1951,7 +1884,7 @@ const AdminDashboard = () => {
             white-space: nowrap;
           }
           
-          .transaction-filters, .user-filters {
+          .user-filters {
             flex-direction: column;
             align-items: flex-start;
           }

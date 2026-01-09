@@ -1,16 +1,26 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  sendPasswordResetEmail
+} from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from '../../../firebase.js';
 import HEADER from '../head/header';
 import { FcGoogle } from 'react-icons/fc';
 import { Link, useNavigate } from "react-router-dom";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 import './auth.css';
 
 const Login = () => {
-  const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
+
   const navigate = useNavigate();
 
   const isProfileComplete = (data) => {
@@ -25,8 +35,8 @@ const Login = () => {
 
   const redirectAfterLogin = async (user) => {
     const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
-    const data = userSnap.exists() ? userSnap.data() : {};
+    const snap = await getDoc(userRef);
+    const data = snap.exists() ? snap.data() : {};
 
     if (isProfileComplete(data)) {
       navigate("/dashboard");
@@ -37,29 +47,26 @@ const Login = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError("");
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      await redirectAfterLogin(user);
-    } catch (err) {
-      console.error("Login error:", err.message);
-      setError("Login failed. Check your credentials.");
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      await redirectAfterLogin(cred.user);
+    } catch {
+      setError("Invalid email or password");
     }
   };
 
   const handleGoogleLogin = async () => {
-    const provider = new GoogleAuthProvider();
     try {
+      const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      // Check if user doc exists
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
+      const ref = doc(db, "users", user.uid);
+      const snap = await getDoc(ref);
 
-      if (!userSnap.exists()) {
-        // First time login, create user doc with empty wallets
-        await setDoc(userRef, {
+      if (!snap.exists()) {
+        await setDoc(ref, {
           fullName: user.displayName || "",
           email: user.email,
           createdAt: new Date(),
@@ -68,25 +75,118 @@ const Login = () => {
       }
 
       await redirectAfterLogin(user);
-    } catch (err) {
-      console.error("Google login error:", err.message);
-      setError("Google login failed. Try again.");
+    } catch {
+      setError("Google login failed");
+    }
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+
+    if (!email) {
+      setError("Enter your email first");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setSuccess("Password reset email sent");
+    } catch {
+      setError("Failed to send reset email");
     }
   };
 
   return (
-    <div className='body'>
+    <div className="body">
       <HEADER />
+
       <div className="page">
-        <h1 className="h1">Login</h1>
-        <form onSubmit={handleLogin} className="login-form">
-          <input className="input" required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email" />
-          <input className="input" required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
-          <button type="submit" className="btn btn1">Login</button>
-           
-          <p>Don't have an account? <Link to="/signup" className="Login-txt">Signup</Link></p>
-          {error && <span className="error-text">{error}</span>}
-        </form>
+        <h1 className="h1">{resetMode ? "Reset Password" : "Login"}</h1>
+
+        <div className="auth-card">
+          {!resetMode ? (
+            <form onSubmit={handleLogin} className="login-form">
+              <input
+                className="input"
+                type="email"
+                placeholder="Email"
+                value={email}
+                required
+                onChange={(e) => setEmail(e.target.value)}
+              />
+
+              <div className="password-wrapper">
+                <input
+                  className="input"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Password"
+                  value={password}
+                  required
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <span
+                  className="eye"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <FaEyeSlash /> : <FaEye />}
+                </span>
+              </div>
+
+              <button className="btn btn1" type="submit">
+                Login
+              </button>
+
+              <button
+                type="button"
+                className="google-btn"
+                onClick={handleGoogleLogin}
+              >
+                <FcGoogle /> Continue with Google
+              </button>
+
+              <span
+                className="forgot"
+                onClick={() => setResetMode(true)}
+              >
+                Forgot password?
+              </span>
+
+              <p>
+                Don’t have an account?{" "}
+                <Link to="/signup" className="Login-txt">Signup</Link>
+              </p>
+
+              {error && <span className="error-text">{error}</span>}
+            </form>
+          ) : (
+            <form onSubmit={handlePasswordReset} className="login-form">
+              <input
+                className="input"
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+
+              <button className="btn btn1" type="submit">
+                Send Reset Link
+              </button>
+
+              <span
+                className="forgot"
+                onClick={() => setResetMode(false)}
+              >
+                ← Back to login
+              </span>
+
+              {error && <span className="error-text">{error}</span>}
+              {success && <span className="success-text">{success}</span>}
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

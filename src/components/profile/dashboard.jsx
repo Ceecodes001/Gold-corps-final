@@ -1241,6 +1241,10 @@ const Dashboard = () => {
               <p className="metric">{goldBalance.toFixed(2)}g</p>
               <p className="subtext">Pure Gold</p>
             </div>
+
+
+
+            
             <div className="card">
               <h3>Total Value</h3>
               <p className="metric">${(balance + (goldBalance * (goldPrice || 65))).toLocaleString()}</p>
