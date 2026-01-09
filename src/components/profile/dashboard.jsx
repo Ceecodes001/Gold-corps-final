@@ -171,7 +171,7 @@ const GOLD_PLANS = [
     name: "BEGINNERS PLAN",
     profitPercent: 5,
     min: 200,
-    max: 19900,
+    max: 19999,
     duration: 7,
     description: "Perfect for beginners starting with gold investment"
   },
@@ -180,7 +180,7 @@ const GOLD_PLANS = [
     name: "MASTERS PLAN",
     profitPercent: 30,
     min: 20000,
-    max: 99999,
+    max: 999999,
     duration: 14,
     description: "Ideal for consistent wealth accumulation"
   },
