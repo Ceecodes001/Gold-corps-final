@@ -91,7 +91,7 @@ const GoldPlansSection = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .gold-plans-section {
           padding: 100px 0;
           background: linear-gradient(135deg, #0D0D0D 0%, #1a1a1a 100%);

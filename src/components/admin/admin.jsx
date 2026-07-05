@@ -925,7 +925,7 @@ const AdminDashboard = () => {
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         .admin-dashboard {
           padding: 20px;
           background: #f5f7fa;

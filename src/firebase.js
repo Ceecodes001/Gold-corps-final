@@ -8,7 +8,7 @@ import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_REACT_APP_FIREBASE_KEY,
+  apiKey: "AIzaSyAwNVpI9pwh7lCsh1C53JH8w991gmeUbKI",
   authDomain: "goldinc-7ed2f.firebaseapp.com",
   projectId: "goldinc-7ed2f",
   storageBucket: "goldinc-7ed2f.firebasestorage.app",

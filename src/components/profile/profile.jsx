@@ -335,7 +335,7 @@ const Profile = () => {
         </form>
       </div>
 
-      <style jsx>{`
+      <style>{`
         /* --- General Layout --- */
         .profile-page {
             min-height: 100vh;

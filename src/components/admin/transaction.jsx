@@ -719,7 +719,7 @@ const TransactionApprovalDashboard = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .transaction-approval-dashboard {
           padding: 20px;
           background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);

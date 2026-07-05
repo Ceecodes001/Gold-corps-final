@@ -588,7 +588,7 @@ const AdminChatManagement = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .admin-chat-management {
           padding: 20px;
           background: #f5f7fa;

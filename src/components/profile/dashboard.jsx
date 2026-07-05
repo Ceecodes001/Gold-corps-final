@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut, sendPasswordResetEmail } from "firebase/auth";
-import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, runTransaction, getDocs } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { useNavigate } from "react-router-dom";
+import {
+  fetchGoldPrice as fetchGoldPriceFromService,
+  createGoldPurchase,
+  validateDepositAmount
+} from "../../services/cryptoTransactionService";
 import {
   FaSignOutAlt,
   FaUser,
@@ -27,7 +32,11 @@ import {
   FaCalendarAlt,
   FaComments,
   FaPaperPlane,
-  FaTimesCircle
+  FaTimesCircle,
+  FaUniversity,
+  FaMoneyCheck,
+  FaMoneyBillWave,
+  FaEnvelope
 } from "react-icons/fa";
 
 // Component for the Chat window
@@ -192,13 +201,27 @@ const GOLD_PLANS = [
     max: Infinity,
     duration: 30,
     description: "For premium investors building a substantial portfolio"
+  },
+  // 🧪 TEST PLAN - Credits every 1 minute
+  {
+    id: 99,
+    name: "🧪 TEST PLAN (1-Minute)",
+    profitPercent: 10,
+    min: 1,
+    max: 1000,
+    duration: 5, // Will complete after 5 minutes
+    description: "⚠️ TEST PLAN ONLY - Credits every 1 minute for testing",
+    isTestPlan: true // Flag to identify test plan
   }
 ];
 
 const CRYPTO_WALLETS = [
+  { type: "Bitcoin (BTC)", address: "bc1qd0l4rpekuxey4dchuaqt963wuz5djpskj9az06" },
+  { type: "Ethereum (ETH)", address: "0x2F549207342b44ADF00d25893580b23902f3137B" },
   { type: "USDT (ERC20)", address: "0x2F549207342b44ADF00d25893580b23902f3137B" },
-  { type: "TRON", address: "TNyKcnXh9GhANHaCgQyRdnXGmMc72ykQFC" },
-  { type: "DOGECOIN", address: "D7whXjWwZzsXqnfZdy3rSkBtvTbyefr4d4" }
+  { type: "Dogecoin (DOGE)", address: "D7whXjWwZzsXqnfZdy3rSkBtvTbyefr4d4" },
+  { type: "Tron (TRX)", address: "TNyKcnXh9GhANHaCgQyTdnXGmMc72ykQFC" },
+  { type: "Litecoin (LTC)", address: "LYeqNHY5YR258V41SEMN8WmdHHrm76EzkD" }
 ];
 
 // Component for the Profile section
@@ -341,7 +364,7 @@ const SettingsSection = ({ user }) => {
   );
 };
 
-// Component for the Deposit section
+// Component for the Deposit section - Updated with all deposit methods
 const DepositSection = ({ user, updateBalance, goldPrice }) => {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [depositAmount, setDepositAmount] = useState("");
@@ -352,6 +375,8 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
   const [error, setError] = useState(null);
   const [step, setStep] = useState(0);
   const [addressCopied, setAddressCopied] = useState(false);
+  const [depositMethod, setDepositMethod] = useState("crypto");
+  const [showMethodSelection, setShowMethodSelection] = useState(false);
 
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
@@ -361,31 +386,40 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
     setUploaded(false);
     setTransactionSuccess(false);
     setError(null);
-    setStep(1);
+    setShowMethodSelection(false);
+    setStep(1); // Move directly to deposit amount entry after selecting a plan
+  };
+
+  const handleMethodSelect = (method) => {
+    setDepositMethod(method);
+    if (method === "crypto") {
+      setStep(3); // Go to wallet selection
+    } else {
+      setStep(5); // Go to non-crypto method details
+    }
   };
 
   const handleAmountSubmit = () => {
     const amount = parseFloat(depositAmount);
-    if (isNaN(amount) || amount <= 0) {
-      setError("Please enter a valid amount greater than 0");
+    const validation = validateDepositAmount(amount, selectedPlan);
+    if (!validation.valid) {
+      setError(validation.error);
       return;
     }
-    if (amount < selectedPlan.min || (selectedPlan.max !== Infinity && amount > selectedPlan.max)) {
-      setError(`Please enter a valid amount between $${selectedPlan.min} and $${selectedPlan.max === Infinity ? 'unlimited' : selectedPlan.max}`);
-      return;
-    }
+
     setError(null);
-    setStep(2);
+    setShowMethodSelection(true);
+    setStep(2); // Advance to payment method selection after a valid amount
   };
 
   const handleWalletSelect = (wallet) => {
     setSelectedWallet(wallet);
-    setStep(3);
+    setStep(4);
   };
 
-  const handleConfirmTransfer = () => {
+  const handleConfirmTransfer = async () => {
     setDepositConfirmed(true);
-    setStep(4);
+    await processTransaction();
   };
 
   const processTransaction = async () => {
@@ -394,44 +428,27 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
 
     try {
       const amount = parseFloat(depositAmount);
-      const profitPercent = selectedPlan.profitPercent;
-      const interest = (amount * profitPercent / 100).toFixed(0);
-      
-      const startDate = new Date();
-      const nextPaymentDate = new Date();
-      nextPaymentDate.setDate(startDate.getDate() + selectedPlan.duration);
-      
-      // Calculate gold allocation based on real-time price
-      const goldAllocation = amount / goldPrice;
-      
-      const transactionData = {
-        userId: user.uid,
-        type: "deposit",
-        amount: amount,
-        goldAmount: goldAllocation,
-        profitPercent: `${profitPercent}%`,
-        plan: selectedPlan.name,
-        planId: selectedPlan.id,
-        interest: `$${interest}`,
-        duration: selectedPlan.duration,
-        description: selectedPlan.description,
-        status: "pending", // Changed to pending for admin approval
-        timestamp: serverTimestamp(),
-        startDate: Timestamp.fromDate(startDate),
-        nextPaymentDate: Timestamp.fromDate(nextPaymentDate),
-        interestEarned: 0,
-        totalInterestEarned: 0,
-        walletType: selectedWallet.type,
-        goldPriceAtPurchase: goldPrice
-      };
+      const validation = validateDepositAmount(amount, selectedPlan);
+      if (!validation.valid) {
+        setError(validation.error);
+        return;
+      }
 
-      await addDoc(collection(db, "transactions"), transactionData);
+      await createGoldPurchase({
+        userId: user.uid,
+        selectedPlan,
+        depositAmount: amount,
+        goldPrice,
+        selectedWallet,
+        depositMethod
+      });
 
       setTransactionSuccess(true);
       setStep(0);
       setSelectedPlan(null);
       setDepositConfirmed(false);
       setUploaded(false);
+      setShowMethodSelection(false);
     } catch (err) {
       setError("Failed to process transaction. Please try again.");
       console.error(err);
@@ -453,6 +470,10 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
     }
   };
 
+  const handleSupportContact = () => {
+    window.location.href = "mailto:goldcorps.org@hotmail.com";
+  };
+
   return (
     <div className="section-card">
       <h2 className="section-title">Purchase Gold</h2>
@@ -472,7 +493,11 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
           </span>
           <button
             className="btn-secondary"
-            onClick={() => setTransactionSuccess(false)}
+            onClick={() => {
+              setTransactionSuccess(false);
+              setShowMethodSelection(false);
+              setStep(0);
+            }}
           >
             Back to Plans
           </button>
@@ -484,14 +509,17 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
             {GOLD_PLANS.map(plan => (
               <div
                 key={plan.id}
-                className={`gold-plan-card ${selectedPlan?.id === plan.id ? 'selected-plan' : ''}`}
+                className={`gold-plan-card ${selectedPlan?.id === plan.id ? 'selected-plan' : ''} ${plan.isTestPlan ? 'test-plan-card' : ''}`}
                 onClick={() => handlePlanSelect(plan)}
               >
                 <FaCoins size={36} color="#D4AF37" />
                 <h3 className="plan-title">{plan.name}</h3>
                 <p className="plan-price">${plan.min}  - {plan.max === Infinity ? 'and above' : plan.max} USD</p>
-                <p className="plan-description"><strong>Profit:</strong> {plan.profitPercent}% every {plan.duration} days</p>
+                <p className="plan-description"><strong>Profit:</strong> {plan.profitPercent}% every {plan.duration} {plan.isTestPlan ? 'minutes' : 'days'}</p>
                 <p className="plan-description">{plan.description}</p>
+                {plan.isTestPlan && (
+                  <div className="test-badge-plan">🧪 Test Plan</div>
+                )}
               </div>
             ))}
           </div>
@@ -516,7 +544,7 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
             </div>
           )}
           <button className="btn-primary" onClick={handleAmountSubmit}>
-            Proceed
+            Proceed to Payment Method
           </button>
           <button className="btn-secondary" onClick={() => setStep(0)}>
             Back
@@ -524,24 +552,59 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
         </>
       ) : step === 2 ? (
         <>
-          <h3>Select a Wallet</h3>
-          <div className="gold-plans-container">
-            {CRYPTO_WALLETS.map((wallet, index) => (
-              <div
-                key={index}
-                className={`gold-plan-card ${selectedWallet?.type === wallet.type ? 'selected-plan' : ''}`}
-                onClick={() => handleWalletSelect(wallet)}
-              >
-                <FaCoins size={36} color="#D4AF37" />
-                <h3 className="plan-title">{wallet.type}</h3>
-              </div>
-            ))}
+          <h3>Select a Deposit Method</h3>
+          <div className="deposit-methods-grid">
+            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("crypto")}>
+              <FaBitcoin size={36} color="#F7931A" />
+              <h4>Cryptocurrency</h4>
+              <p>BTC, ETH, USDT, DOGE, TRX, LTC</p>
+            </button>
+            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("wire")}>
+              <FaUniversity size={36} color="#2C3E50" />
+              <h4>Wire Transfer</h4>
+              <p>Bank to bank transfer</p>
+            </button>
+            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("check")}>
+              <FaMoneyCheck size={36} color="#27AE60" />
+              <h4>Cashier's Check</h4>
+              <p>Certified bank check</p>
+            </button>
+            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("cash")}>
+              <FaMoneyBillWave size={36} color="#F39C12" />
+              <h4>Cash & Money Orders</h4>
+              <p>Cash deposits & money orders</p>
+            </button>
           </div>
           <button className="btn-secondary" onClick={() => setStep(1)}>
             Back
           </button>
         </>
       ) : step === 3 ? (
+        <>
+          <h3>Select a Cryptocurrency Wallet</h3>
+          <p>After clicking the Cryptocurrency button, choose your wallet and send the exact amount to one of the supported addresses below.</p>
+          <div className="gold-plans-container">
+            {CRYPTO_WALLETS.map((wallet, index) => (
+              <button
+                key={index}
+                type="button"
+                className={`gold-plan-card ${selectedWallet?.type === wallet.type ? 'selected-plan' : ''}`}
+                onClick={() => handleWalletSelect(wallet)}
+              >
+                {wallet.type.includes("Bitcoin") && <FaBitcoin size={36} color="#F7931A" />}
+                {wallet.type.includes("Ethereum") && <FaEthereum size={36} color="#627EEA" />}
+                {wallet.type.includes("USDT") && <FaCoins size={36} color="#26A17B" />}
+                {!wallet.type.includes("Bitcoin") && !wallet.type.includes("Ethereum") && !wallet.type.includes("USDT") && <FaWallet size={36} color="#D4AF37" />}
+                <h3 className="plan-title">{wallet.type}</h3>
+                <p className="plan-description" style={{fontSize: '12px', wordBreak: 'break-all'}}>{wallet.address.substring(0, 20)}...</p>
+              </button>
+            ))}
+          </div>
+          <button className="btn-secondary" onClick={() => setStep(2)}>
+            Back
+          </button>
+        </>
+      ) : step === 4 ? (
         <>
           <h3>Selected Plan: {selectedPlan.name}</h3>
           <p>Amount: ${depositAmount}</p>
@@ -551,7 +614,7 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
           <p>Please send exactly <strong>${depositAmount}</strong> to the following address:</p>
           <div className="deposit-address">
             <p><strong>{selectedWallet.type} Address:</strong></p>
-            <p>{selectedWallet.address}</p>
+            <p style={{wordBreak: 'break-all'}}>{selectedWallet.address}</p>
             <button className="btn-secondary" onClick={handleCopyAddress}>
               {addressCopied ? "Copied!" : "Copy Address"} <FaCopy style={{ marginLeft: "5px" }} />
             </button>
@@ -565,21 +628,206 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
           </button>
           <button
             className="btn-secondary"
-            onClick={() => setStep(2)}
+            onClick={() => setStep(3)}
           >
             Choose Different Wallet
           </button>
         </>
-      ) : step === 4 ? (
+      ) : step === 5 ? (
         <>
-          <h3>Confirm Deposit</h3>
-          <p>Upload a screenshot of the transaction (for verification):</p>
-          <input type="file" accept="image/*" onChange={handleFileChange} />
-          <button className="btn-secondary" onClick={() => setStep(3)}>
-            Back
+          <h3>{depositMethod === "wire" ? "Wire Transfer" : depositMethod === "check" ? "Cashier's Check" : "Cash & Money Orders"}</h3>
+          <div className="deposit-method-info">
+            <div className="method-icon-large">
+              {depositMethod === "wire" && <FaUniversity size={48} color="#2C3E50" />}
+              {depositMethod === "check" && <FaMoneyCheck size={48} color="#27AE60" />}
+              {depositMethod === "cash" && <FaMoneyBillWave size={48} color="#F39C12" />}
+            </div>
+            
+            <h4>Amount: ${depositAmount}</h4>
+            <p>Gold Allocation: {(parseFloat(depositAmount) / goldPrice).toFixed(4)}g</p>
+            
+            <div className="method-instructions">
+              <p><strong>Instructions:</strong></p>
+              {depositMethod === "wire" && (
+                <>
+                  <p>For wire transfers, please contact our Live Support team or email <a href="mailto:goldcorps.org@hotmail.com">goldcorps.org@hotmail.com</a> to receive our wire transfer instructions, including:</p>
+                  <ul>
+                    <li>Bank name</li>
+                    <li>Routing number</li>
+                    <li>Account number</li>
+                    <li>Reference/payment details required to ensure your deposit is credited promptly</li>
+                  </ul>
+                </>
+              )}
+              {depositMethod === "check" && (
+                <>
+                  <p>For cashier's check deposits, please contact our Live Support team or email <a href="mailto:goldcorps.org@hotmail.com">goldcorps.org@hotmail.com</a> to receive the appropriate mailing and payment instructions. This ensures your funds are credited securely and without delay.</p>
+                </>
+              )}
+              {depositMethod === "cash" && (
+                <>
+                  <p>For cash deposits or money orders, please contact our Live Support team or email <a href="mailto:goldcorps.org@hotmail.com">goldcorps.org@hotmail.com</a> to receive the correct payee information and mailing instructions. Once your payment has been received, verified, and processed, your account balance will be updated accordingly.</p>
+                </>
+              )}
+            </div>
+            
+            <div className="support-contact">
+              <button className="btn-primary" onClick={handleSupportContact}>
+                <FaEnvelope style={{marginRight: '8px'}} /> Contact Support
+              </button>
+            </div>
+            
+            <p style={{marginTop: '20px', color: '#7f8c8d'}}>After completing your payment, click the button below to confirm.</p>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setDepositConfirmed(true);
+                processTransaction();
+              }}
+            >
+              I've Sent the Payment
+            </button>
+          </div>
+          <button className="btn-secondary" onClick={() => setStep(2)}>
+            Back to Methods
           </button>
         </>
       ) : null}
+      
+      {!showMethodSelection && step === 0 && selectedPlan && (
+        <div style={{marginTop: '20px'}}>
+          <button className="btn-primary" onClick={() => setStep(1)}>
+            Continue with {selectedPlan.name}
+          </button>
+        </div>
+      )}
+
+      <div className="deposit-important-info">
+        <h3>Important Information</h3>
+        <ul>
+          <li>All deposits are subject to verification and compliance review.</li>
+          <li>Processing times vary depending on the selected payment method.</li>
+          <li>Funds will be credited to your account only after successful confirmation and approval.</li>
+          <li>Please ensure all payment details are entered accurately to avoid processing delays.</li>
+          <li>If you have any questions before making a deposit, please contact our support team for assistance.</li>
+        </ul>
+      </div>
+      
+      <style>{`
+        .deposit-methods-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 20px;
+          margin: 20px 0;
+        }
+        
+        .deposit-method-card {
+          background: white;
+          padding: 25px 20px;
+          border-radius: 16px;
+          text-align: center;
+          cursor: pointer;
+          border: 2px solid #e9ecef;
+          transition: all 0.3s ease;
+        }
+        
+        .deposit-method-card:hover {
+          border-color: #3498db;
+          transform: translateY(-5px);
+          box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        
+        .deposit-method-card h4 {
+          margin: 15px 0 5px;
+          color: #2c3e50;
+        }
+        
+        .deposit-method-card p {
+          color: #7f8c8d;
+          font-size: 14px;
+          margin: 5px 0 0;
+        }
+
+        .method-note {
+          font-size: 12px;
+          color: #56657f;
+          margin-top: 10px;
+        }
+
+        .deposit-important-info {
+          background: #f7f9fc;
+          border: 1px solid #dfe6ed;
+          border-radius: 14px;
+          padding: 18px 20px;
+          margin: 20px 0 0;
+        }
+
+        .deposit-important-info h3 {
+          margin: 0 0 12px;
+          font-size: 18px;
+          color: #2c3e50;
+        }
+
+        .deposit-important-info ul {
+          margin: 0;
+          padding-left: 20px;
+          color: #4f5d72;
+        }
+
+        .deposit-important-info ul li {
+          margin-bottom: 8px;
+        }
+        
+        .method-icon-large {
+          text-align: center;
+          margin: 20px 0;
+        }
+        
+        .method-instructions {
+          background: #f8f9fa;
+          padding: 20px;
+          border-radius: 12px;
+          margin: 20px 0;
+          border-left: 4px solid #3498db;
+        }
+        
+        .method-instructions a {
+          color: #3498db;
+          text-decoration: none;
+          font-weight: 600;
+        }
+        
+        .method-instructions a:hover {
+          text-decoration: underline;
+        }
+        
+        .support-contact {
+          text-align: center;
+          margin: 20px 0;
+        }
+        
+        .test-plan-card {
+          border: 2px solid #ff9800;
+          position: relative;
+        }
+        
+        .test-badge-plan {
+          display: inline-block;
+          background: #ff9800;
+          color: white;
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          margin-top: 10px;
+        }
+        
+        .deposit-method-info {
+          background: white;
+          padding: 20px;
+          border-radius: 12px;
+          margin: 20px 0;
+        }
+      `}</style>
     </div>
   );
 };
@@ -896,13 +1144,270 @@ const ReferralSection = ({ user }) => {
   );
 };
 
-// Component for Investments Section
+// Component for Investments Section - UPDATED with automatic crediting and 1-minute test support
 const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
   const [investments, setInvestments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [lastCredited, setLastCredited] = useState(null);
+  const [testMode, setTestMode] = useState(false);
+  const [creditLogs, setCreditLogs] = useState([]);
 
+  // Function to calculate and credit interest automatically
+  const processInvestmentInterest = async () => {
+    console.log('🔍 Checking for investment credits...');
+    console.log(`👤 User: ${user?.email || user?.uid}`);
+    
+    if (!user || !investments.length) {
+      console.log('❌ No user or no investments found');
+      return;
+    }
+
+    const activeInvestments = investments.filter(inv => inv.isActive !== false);
+    console.log(`📊 Found ${activeInvestments.length} active investments`);
+    
+    if (activeInvestments.length === 0) {
+      console.log('ℹ️ No active investments to process');
+      setProcessing(false);
+      return;
+    }
+
+    // Log each investment details
+    activeInvestments.forEach((inv, index) => {
+      console.log(`💰 Investment ${index + 1}:`, {
+        id: inv.id,
+        plan: inv.plan,
+        amount: inv.amount,
+        daysCredited: inv.daysCredited || 0,
+        duration: inv.duration,
+        isTestPlan: inv.isTestPlan || false,
+        lastCreditedDate: inv.lastCreditedDate?.toDate?.() || 'Not set',
+        isActive: inv.isActive
+      });
+    });
+
+    try {
+      setProcessing(true);
+      
+      // Process each investment
+      for (const investment of activeInvestments) {
+        await processSingleInvestment(investment);
+      }
+      
+      setProcessing(false);
+    } catch (err) {
+      console.error("Error processing investment interest:", err);
+      setError("Failed to process investment interest");
+      setProcessing(false);
+    }
+  };
+
+  // Process a single investment
+  const processSingleInvestment = async (investment) => {
+    console.log(`🔄 Processing investment: ${investment.id}`);
+    
+    try {
+      const investmentRef = doc(db, "transactions", investment.id);
+      
+      await runTransaction(db, async (transaction) => {
+        const investmentDoc = await transaction.get(investmentRef);
+        
+        if (!investmentDoc.exists()) {
+          console.log(`❌ Investment ${investment.id} not found`);
+          return;
+        }
+        
+        const invData = investmentDoc.data();
+        
+        // Check if this is a test plan
+        const isTestPlan = invData.isTestPlan || false;
+        
+        console.log(`📈 Investment ${investment.id} current state:`, {
+          daysCredited: invData.daysCredited || 0,
+          duration: invData.duration,
+          isActive: invData.isActive,
+          isTestPlan: isTestPlan,
+          lastCreditedDate: invData.lastCreditedDate?.toDate?.() || 'Never'
+        });
+        
+        // Check if investment is still active
+        if (invData.isActive === false) {
+          console.log(`⏹️ Investment ${investment.id} is already completed`);
+          return;
+        }
+        
+        const daysCredited = invData.daysCredited || 0;
+        const totalDuration = invData.duration || 0;
+        
+        if (daysCredited >= totalDuration) {
+          console.log(`✅ Investment ${investment.id} has reached its duration, marking as complete`);
+          transaction.update(investmentRef, {
+            isActive: false,
+            status: "completed"
+          });
+          return;
+        }
+        
+        // Calculate time since last credit
+        const lastCreditedDate = invData.lastCreditedDate?.toDate() || invData.startDate?.toDate() || new Date();
+        const now = new Date();
+        
+        let timeElapsed;
+        let creditInterval;
+        
+        if (isTestPlan) {
+          // Test plan: credit every minute
+          const minutesElapsed = Math.floor((now - lastCreditedDate) / (1000 * 60));
+          timeElapsed = minutesElapsed;
+          creditInterval = 1; // 1 minute
+          console.log(`⏱️ Test plan: ${minutesElapsed} minutes since last credit`);
+        } else {
+          // Normal plan: credit every day
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const lastDate = new Date(lastCreditedDate.getFullYear(), lastCreditedDate.getMonth(), lastCreditedDate.getDate());
+          const daysElapsed = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+          timeElapsed = daysElapsed;
+          creditInterval = 1; // 1 day
+          console.log(`📅 Normal plan: ${daysElapsed} days since last credit`);
+        }
+        
+        // If less than interval has passed, skip
+        if (timeElapsed < creditInterval) {
+          console.log(`⏳ Less than ${creditInterval} ${isTestPlan ? 'minute' : 'day'} passed, skipping credit for ${investment.id}`);
+          return;
+        }
+        
+        // Calculate how many intervals to credit (don't exceed total duration)
+        const remainingIntervals = totalDuration - daysCredited;
+        const intervalsToCredit = Math.min(Math.floor(timeElapsed / creditInterval), remainingIntervals);
+        
+        console.log(`📆 Intervals to credit: ${intervalsToCredit}`);
+        
+        if (intervalsToCredit <= 0) {
+          console.log(`ℹ️ No intervals to credit for ${investment.id}`);
+          return;
+        }
+        
+        // Calculate earnings
+        const profitPercent = parseFloat(invData.profitPercent) || 0;
+        const amount = invData.amount || 0;
+        const totalInterest = (amount * profitPercent) / 100;
+        const dailyInterest = totalInterest / totalDuration;
+        
+        // For test plans, we credit per minute, so divide daily interest by 1440 (minutes in a day)
+        const intervalInterest = isTestPlan ? dailyInterest / 1440 : dailyInterest;
+        const earnings = intervalInterest * intervalsToCredit;
+        
+        console.log(`💰 Calculated earnings: $${earnings.toFixed(6)} (${intervalsToCredit} intervals × $${intervalInterest.toFixed(6)}/interval)`);
+        
+        // Get current user data
+        const userRef = doc(db, "users", user.uid);
+        const userDoc = await transaction.get(userRef);
+        
+        if (!userDoc.exists()) {
+          console.log(`❌ User ${user.uid} not found`);
+          return;
+        }
+        
+        const currentBalance = userDoc.data().balance || 0;
+        console.log(`💵 Current balance: $${currentBalance.toFixed(2)}`);
+        console.log(`➕ New balance will be: $${(currentBalance + earnings).toFixed(2)}`);
+        
+        // Update user's balance
+        transaction.update(userRef, {
+          balance: currentBalance + earnings,
+          lastInvestmentCredit: Timestamp.fromDate(now)
+        });
+        
+        // Update investment document
+        const newDaysCredited = daysCredited + intervalsToCredit;
+        const isComplete = newDaysCredited >= totalDuration;
+        
+        transaction.update(investmentRef, {
+          lastCreditedDate: Timestamp.fromDate(now),
+          daysCredited: newDaysCredited,
+          interestEarned: earnings,
+          totalInterestEarned: (invData.totalInterestEarned || 0) + earnings,
+          ...(isComplete && { isActive: false, status: "completed" })
+        });
+        
+        console.log(`✅ Investment ${investment.id} credited successfully!`);
+        console.log(`📊 Days credited: ${daysCredited} → ${newDaysCredited}`);
+        console.log(`📊 Total interest earned: $${((invData.totalInterestEarned || 0) + earnings).toFixed(2)}`);
+        
+        // Create transaction record
+        const creditTransactionRef = doc(collection(db, "transactions"));
+        transaction.set(creditTransactionRef, {
+          userId: user.uid,
+          type: "interest_credit",
+          amount: earnings,
+          description: `Interest from ${invData.plan || 'Investment'} (${intervalsToCredit} ${isTestPlan ? 'minutes' : 'days'})`,
+          investmentId: investment.id,
+          status: "completed",
+          timestamp: Timestamp.fromDate(now),
+          isTestPlan: isTestPlan
+        });
+        
+        if (isComplete) {
+          console.log(`🏁 Investment ${investment.id} is now complete!`);
+        }
+        
+        // Update credit logs for UI
+        setCreditLogs(prev => [...prev, {
+          timestamp: new Date(),
+          investment: invData.plan,
+          amount: earnings,
+          intervals: intervalsToCredit,
+          totalEarned: (invData.totalInterestEarned || 0) + earnings
+        }]);
+      });
+      
+    } catch (err) {
+      console.error(`❌ Error processing investment ${investment.id}:`, err);
+      setError(`Failed to process investment: ${err.message}`);
+    }
+  };
+
+  // Set up automatic crediting with interval for test plans
+  useEffect(() => {
+    if (user && investments.length > 0) {
+      // Check for test plans
+      const hasTestPlan = investments.some(inv => inv.isTestPlan === true && inv.isActive !== false);
+      
+      if (hasTestPlan) {
+        console.log('🧪 Test plan detected! Setting up 1-minute credit interval...');
+        setTestMode(true);
+        
+        // Process immediately on mount
+        processInvestmentInterest();
+        
+        // Set up interval to check every minute for test plans
+        const intervalId = setInterval(() => {
+          console.log('⏰ Running scheduled credit check (every 1 minute)...');
+          processInvestmentInterest();
+        }, 60000); // 1 minute
+        
+        return () => {
+          console.log('🧹 Cleaning up test interval');
+          clearInterval(intervalId);
+        };
+      } else {
+        // Normal plans: check daily using localStorage
+        const today = new Date().toDateString();
+        const lastCreditDate = localStorage.getItem(`lastCredit_${user.uid}`);
+        
+        if (lastCreditDate !== today) {
+          console.log('📅 Processing daily credits...');
+          processInvestmentInterest().then(() => {
+            localStorage.setItem(`lastCredit_${user.uid}`, today);
+          });
+        }
+      }
+    }
+  }, [user, investments]);
+
+  // Fetch investments
   useEffect(() => {
     if (!user) return;
     
@@ -910,7 +1415,7 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
       collection(db, "transactions"),
       where("userId", "==", user.uid),
       where("type", "==", "deposit"),
-      where("status", "==", "completed"),
+      where("status", "in", ["completed", "active", "pending"]),
       orderBy("timestamp", "desc")
     );
     
@@ -930,76 +1435,18 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
     return () => unsubscribe();
   }, [user]);
 
-  const calculateInterest = (investment) => {
-    if (!investment.startDate || !investment.nextPaymentDate) return 0;
-    
-    const now = new Date();
-    const nextPaymentDate = investment.nextPaymentDate.toDate();
-    
-    if (now >= nextPaymentDate) {
-      const interestAmount = (investment.amount * parseFloat(investment.profitPercent)) / 100;
-      return interestAmount;
-    }
-    
-    return 0;
-  };
-
-  const claimInterest = async (investment) => {
-    setProcessing(true);
-    try {
-      const interestAmount = calculateInterest(investment);
-      if (interestAmount <= 0) {
-        setError("No interest available to claim yet.");
-        return;
-      }
-
-      const userRef = doc(db, "users", user.uid);
-      const userDoc = await getDoc(userRef);
-
-      if (userDoc.exists()) {
-        const currentBalance = userDoc.data().balance || 0;
-        const currentGold = userDoc.data().goldBalance || 0;
-        const goldToAdd = interestAmount / (goldPrice || 65);
-
-        await updateDoc(userRef, {
-          balance: currentBalance + interestAmount,
-          goldBalance: currentGold + goldToAdd
-        });
-
-        updateBalance(currentBalance + interestAmount, currentGold + goldToAdd);
-      }
-
-      const investmentRef = doc(db, "transactions", investment.id);
-      const newNextPaymentDate = new Date();
-      newNextPaymentDate.setDate(newNextPaymentDate.getDate() + investment.duration);
-      
-      await updateDoc(investmentRef, {
-        nextPaymentDate: Timestamp.fromDate(newNextPaymentDate),
-        interestEarned: interestAmount,
-        totalInterestEarned: (investment.totalInterestEarned || 0) + interestAmount
-      });
-
-      await addDoc(collection(db, "transactions"), {
-        userId: user.uid,
-        type: "interest",
-        amount: interestAmount,
-        description: `Interest from ${investment.plan}`,
-        status: "completed",
-        timestamp: serverTimestamp()
-      });
-
-      setError(null);
-    } catch (err) {
-      setError("Failed to claim interest. Please try again.");
-      console.error(err);
-    } finally {
-      setProcessing(false);
-    }
-  };
-
   const formatDate = (timestamp) => {
     if (!timestamp) return "N/A";
-    return timestamp.toDate().toLocaleDateString();
+    return timestamp.toDate().toLocaleString();
+  };
+
+  const getStatusText = (investment) => {
+    if (investment.isActive === false) return "Completed";
+    const daysCredited = investment.daysCredited || 0;
+    const totalDuration = investment.duration || 0;
+    if (daysCredited >= totalDuration) return "Completed";
+    if (investment.isTestPlan) return "Testing (1-min credits)";
+    return "Active";
   };
 
   if (loading) {
@@ -1012,80 +1459,257 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
 
   return (
     <div className="section-card">
-      <h2 className="section-title">My Investments</h2>
+      <h2 className="section-title">
+        My Investments
+        {testMode && <span className="test-badge">🧪 TEST MODE ACTIVE</span>}
+      </h2>
+      
+      {creditLogs.length > 0 && (
+        <div className="credit-logs">
+          <h4>Recent Credits:</h4>
+          <div className="logs-container">
+            {creditLogs.slice(-5).reverse().map((log, index) => (
+              <div key={index} className="log-entry">
+                <span className="log-time">{log.timestamp.toLocaleTimeString()}</span>
+                <span className="log-investment">{log.investment}</span>
+                <span className="log-amount">+${log.amount.toFixed(6)}</span>
+                <span className="log-total">Total: ${log.totalEarned.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       {investments.length === 0 ? (
         <p>No active investments yet.</p>
       ) : (
-        <div className="investments-container">
-          {investments.map((investment) => {
-            const interestAvailable = calculateInterest(investment);
-            const nextPaymentDate = investment.nextPaymentDate ? investment.nextPaymentDate.toDate() : null;
-            const daysUntilPayment = nextPaymentDate ? Math.ceil((nextPaymentDate - new Date()) / (1000 * 60 * 60 * 24)) : 0;
-            
-            return (
-              <div key={investment.id} className="investment-card">
-                <div className="investment-header">
-                  <h3>{investment.plan}</h3>
-                  <span className="investment-amount">${investment.amount.toLocaleString()}</span>
+        <>
+          <div className="investments-container">
+            {investments.map((investment) => {
+              const daysCredited = investment.daysCredited || 0;
+              const totalDuration = investment.duration || 0;
+              const daysRemaining = Math.max(0, totalDuration - daysCredited);
+              const isComplete = investment.isActive === false || daysCredited >= totalDuration;
+              const totalInterestEarned = investment.totalInterestEarned || 0;
+              const isTestPlan = investment.isTestPlan || false;
+              
+              return (
+                <div key={investment.id} className={`investment-card ${isComplete ? 'completed-investment' : ''} ${isTestPlan ? 'test-investment' : ''}`}>
+                  <div className="investment-header">
+                    <h3>
+                      {investment.plan || 'Investment'}
+                      {isTestPlan && <span className="test-label">🧪 TEST</span>}
+                    </h3>
+                    <span className="investment-amount">${investment.amount?.toLocaleString() || 'N/A'}</span>
+                  </div>
+                  
+                  <div className="investment-details">
+                    <div className="investment-detail">
+                      <span className="detail-label">Gold Allocation:</span>
+                      <span className="detail-value">{investment.goldAmount?.toFixed(4) || 'N/A'}g</span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Profit Rate:</span>
+                      <span className="detail-value">{investment.profitPercent || 'N/A'}</span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Duration:</span>
+                      <span className="detail-value">{investment.duration || 'N/A'} {isTestPlan ? 'minutes' : 'days'}</span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Credited:</span>
+                      <span className="detail-value">{daysCredited} / {totalDuration}</span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Remaining:</span>
+                      <span className="detail-value">{daysRemaining}</span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Status:</span>
+                      <span className={`detail-value ${isComplete ? 'status-completed' : 'status-active'}`}>
+                        {getStatusText(investment)}
+                      </span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Total Interest Earned:</span>
+                      <span className="detail-value">${totalInterestEarned.toFixed(4)}</span>
+                    </div>
+                    
+                    <div className="investment-detail">
+                      <span className="detail-label">Last Credited:</span>
+                      <span className="detail-value">{formatDate(investment.lastCreditedDate) || 'Not yet'}</span>
+                    </div>
+                  </div>
+                  
+                  {isTestPlan && !isComplete && (
+                    <div className="test-indicator">
+                      <span className="pulse-dot"></span>
+                      Auto-crediting every minute...
+                    </div>
+                  )}
+                  
+                  {isComplete && (
+                    <div className="completed-badge">
+                      <FaCheckCircle /> Investment Complete
+                    </div>
+                  )}
                 </div>
-                
-                <div className="investment-details">
-                  <div className="investment-detail">
-                    <span className="detail-label">Gold Allocation:</span>
-                    <span className="detail-value">{investment.goldAmount?.toFixed(4)}g</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Profit Rate:</span>
-                    <span className="detail-value">{investment.profitPercent}</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Duration:</span>
-                    <span className="detail-value">{investment.duration} days</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Start Date:</span>
-                    <span className="detail-value">{formatDate(investment.startDate)}</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Next Payment:</span>
-                    <span className="detail-value">{formatDate(investment.nextPaymentDate)}</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Days Until Payment:</span>
-                    <span className="detail-value">{daysUntilPayment > 0 ? daysUntilPayment : 0}</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Interest Available:</span>
-                    <span className="detail-value">${interestAvailable.toFixed(2)}</span>
-                  </div>
-                  
-                  <div className="investment-detail">
-                    <span className="detail-label">Total Interest Earned:</span>
-                    <span className="detail-value">${(investment.totalInterestEarned || 0).toFixed(2)}</span>
-                  </div>
-                </div>
-                
-                {interestAvailable > 0 && (
-                  <button
-                    className="btn-primary"
-                    onClick={() => claimInterest(investment)}
-                    disabled={processing}
-                  >
-                    {processing ? "Processing..." : "Claim Interest"}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          
+          {processing && (
+            <div className="processing-indicator">
+              Processing investment credits...
+            </div>
+          )}
+          
+          {/* Test Controls */}
+          {testMode && (
+            <div className="test-controls">
+              <button 
+                onClick={() => {
+                  console.log('🧪 Manual credit trigger...');
+                  processInvestmentInterest();
+                }}
+                className="btn-primary"
+                disabled={processing}
+              >
+                🔄 Manually Trigger Credit
+              </button>
+              <button 
+                onClick={() => {
+                  setCreditLogs([]);
+                  console.log('🧹 Credit logs cleared');
+                }}
+                className="btn-secondary"
+              >
+                Clear Logs
+              </button>
+            </div>
+          )}
+        </>
       )}
+      
+      <style>{`
+        .test-badge {
+          display: inline-block;
+          background: #ff9800;
+          color: white;
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          margin-left: 12px;
+          animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        
+        .test-investment {
+          border: 2px solid #ff9800;
+          background: linear-gradient(135deg, #fff8e1 0%, #ffffff 100%);
+        }
+        
+        .test-label {
+          display: inline-block;
+          background: #ff9800;
+          color: white;
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 10px;
+          margin-left: 8px;
+        }
+        
+        .test-indicator {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: #fff3e0;
+          border-radius: 8px;
+          margin-top: 15px;
+          font-size: 14px;
+          color: #e65100;
+        }
+        
+        .pulse-dot {
+          display: inline-block;
+          width: 10px;
+          height: 10px;
+          background: #4caf50;
+          border-radius: 50%;
+          animation: pulse-dot 1s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        
+        .credit-logs {
+          background: #f5f5f5;
+          padding: 15px;
+          border-radius: 12px;
+          margin-bottom: 20px;
+        }
+        
+        .credit-logs h4 {
+          margin: 0 0 10px 0;
+          color: #333;
+          font-size: 14px;
+        }
+        
+        .logs-container {
+          max-height: 150px;
+          overflow-y: auto;
+        }
+        
+        .log-entry {
+          display: flex;
+          gap: 15px;
+          padding: 6px 0;
+          border-bottom: 1px solid #e0e0e0;
+          font-size: 13px;
+        }
+        
+        .log-time {
+          color: #666;
+          min-width: 80px;
+        }
+        
+        .log-investment {
+          flex: 1;
+          color: #333;
+        }
+        
+        .log-amount {
+          color: #4caf50;
+          font-weight: 600;
+          min-width: 80px;
+        }
+        
+        .log-total {
+          color: #2196f3;
+          min-width: 100px;
+        }
+        
+        .test-controls {
+          display: flex;
+          gap: 10px;
+          margin-top: 20px;
+          padding-top: 20px;
+          border-top: 1px solid #e0e0e0;
+        }
+      `}</style>
     </div>
   );
 };
@@ -1103,87 +1727,183 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [goldPrice, setGoldPrice] = useState(null);
   const [goldPriceError, setGoldPriceError] = useState(null);
-  const API_KEY = "f369cba8b4f18e797805679cfb09562b";
-  const CURRENCY = "USD";
 
-  // Function to fetch gold price
   const fetchGoldPrice = async () => {
     try {
-      // Check if we have a cached price that's still valid (less than 12 hours old)
-      const cachedData = localStorage.getItem('goldPriceData');
-      if (cachedData) {
-        const { price, timestamp } = JSON.parse(cachedData);
-        const now = new Date().getTime();
-        const twelveHours = 12 * 60 * 60 * 1000;
-        
-        // Use cached price if it's less than 12 hours old
-        if (now - timestamp < twelveHours) {
-          setGoldPrice(price);
-          return;
-        }
-      }
-
-      // Fetch new price from API
-      const res = await fetch(
-        `https://api.metalpriceapi.com/v1/latest?api_key=${API_KEY}&base=XAU&currencies=${CURRENCY}`
-      );
-      
-      if (!res.ok) throw new Error("Failed to fetch gold price");
-
-      const data = await res.json();
-      
-      if (data.rates && data.rates[CURRENCY]) {
-        // Convert price from per ounce to per gram (1 ounce = 28.3495 grams)
-        const pricePerGram = data.rates[CURRENCY] / 28.3495;
-        setGoldPrice(pricePerGram);
-        
-        // Cache the price with timestamp
-        localStorage.setItem('goldPriceData', JSON.stringify({
-          price: pricePerGram,
-          timestamp: new Date().getTime()
-        }));
-        
-        setGoldPriceError(null);
-      } else {
-        throw new Error("Invalid API response format");
-      }
+      const price = await fetchGoldPriceFromService();
+      setGoldPrice(price);
+      setGoldPriceError(null);
     } catch (err) {
       console.error("Error fetching gold price:", err);
       setGoldPriceError("Failed to fetch current gold price. Using default value.");
-      
-      // Use default value if API fails
-      const cachedData = localStorage.getItem('goldPriceData');
-      if (cachedData) {
-        const { price } = JSON.parse(cachedData);
-        setGoldPrice(price);
-      } else {
-        // Default fallback price ($65/g)
-        setGoldPrice(119.50);
-      }
+      setGoldPrice(null);
     }
   };
 
   useEffect(() => {
     fetchGoldPrice();
     
-    // Set up interval to fetch gold price every 12 hours (to stay within API limits)
     const intervalId = setInterval(fetchGoldPrice, 12 * 60 * 60 * 1000);
     
     return () => clearInterval(intervalId);
   }, []);
 
+  // Function to process all investments on login
+  const processAllInvestmentsOnLogin = async (uid) => {
+    try {
+      const today = new Date().toDateString();
+      const lastProcessDate = localStorage.getItem(`lastCredit_${uid}`);
+      
+      if (lastProcessDate === today) {
+        return;
+      }
+
+      const investmentsQuery = query(
+        collection(db, "transactions"),
+        where("userId", "==", uid),
+        where("type", "==", "deposit"),
+        where("status", "in", ["completed", "active"])
+      );
+      
+      const querySnapshot = await getDocs(investmentsQuery);
+      const activeInvestments = querySnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.isActive !== false && (data.daysCredited || 0) < (data.duration || 0);
+      });
+      
+      if (activeInvestments.length === 0) {
+        localStorage.setItem(`lastCredit_${uid}`, today);
+        return;
+      }
+      
+      for (const doc of activeInvestments) {
+        const investment = { id: doc.id, ...doc.data() };
+        await processSingleInvestmentOnLogin(investment, uid);
+      }
+      
+      localStorage.setItem(`lastCredit_${uid}`, today);
+    } catch (err) {
+      console.error("Error processing investments on login:", err);
+    }
+  };
+
+  // Process a single investment on login
+  const processSingleInvestmentOnLogin = async (investment, uid) => {
+    try {
+      const investmentRef = doc(db, "transactions", investment.id);
+      
+      await runTransaction(db, async (transaction) => {
+        const investmentDoc = await transaction.get(investmentRef);
+        
+        if (!investmentDoc.exists()) {
+          return;
+        }
+        
+        const invData = investmentDoc.data();
+        
+        if (invData.isActive === false) {
+          return;
+        }
+        
+        const daysCredited = invData.daysCredited || 0;
+        const totalDuration = invData.duration || 0;
+        
+        if (daysCredited >= totalDuration) {
+          transaction.update(investmentRef, {
+            isActive: false,
+            status: "completed"
+          });
+          return;
+        }
+        
+        const lastCreditedDate = invData.lastCreditedDate?.toDate() || invData.startDate?.toDate() || new Date();
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const lastDate = new Date(lastCreditedDate.getFullYear(), lastCreditedDate.getMonth(), lastCreditedDate.getDate());
+        
+        const elapsedDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+        
+        if (elapsedDays < 1) {
+          return;
+        }
+        
+        const remainingDays = totalDuration - daysCredited;
+        const daysToCredit = Math.min(elapsedDays, remainingDays);
+        
+        if (daysToCredit <= 0) {
+          return;
+        }
+        
+        const profitPercent = parseFloat(invData.profitPercent) || 0;
+        const amount = invData.amount || 0;
+        const totalInterest = (amount * profitPercent) / 100;
+        const dailyInterest = totalInterest / totalDuration;
+        const earnings = dailyInterest * daysToCredit;
+        
+        const userRef = doc(db, "users", uid);
+        const userDoc = await transaction.get(userRef);
+        
+        if (!userDoc.exists()) {
+          return;
+        }
+        
+        const currentBalance = userDoc.data().balance || 0;
+        const currentGoldBalance = userDoc.data().goldBalance || 0;
+        const goldPriceUsed = invData.goldPriceAtPurchase || goldPrice || 65;
+        const goldEarnings = earnings / goldPriceUsed;
+        
+        transaction.update(userRef, {
+          balance: currentBalance + earnings,
+          goldBalance: currentGoldBalance + goldEarnings,
+          lastInvestmentCredit: Timestamp.fromDate(today)
+        });
+        
+        const newDaysCredited = daysCredited + daysToCredit;
+        const isComplete = newDaysCredited >= totalDuration;
+        
+        transaction.update(investmentRef, {
+          lastCreditedDate: Timestamp.fromDate(today),
+          daysCredited: newDaysCredited,
+          interestEarned: earnings,
+          totalInterestEarned: (invData.totalInterestEarned || 0) + earnings,
+          ...(isComplete && { isActive: false, status: "completed" })
+        });
+        
+        const creditTransactionRef = doc(collection(db, "transactions"));
+        transaction.set(creditTransactionRef, {
+          userId: uid,
+          type: "interest_credit",
+          amount: earnings,
+          goldAmount: goldEarnings,
+          description: `Interest from ${invData.plan || 'Investment'} (${daysToCredit} days)`,
+          investmentId: investment.id,
+          status: "completed",
+          timestamp: Timestamp.fromDate(today)
+        });
+      });
+      
+    } catch (err) {
+      console.error(`Error processing investment ${investment.id} on login:`, err);
+    }
+  };
+
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u);
         const userRef = doc(db, "users", u.uid);
-        const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+        const unsubscribeUser = onSnapshot(userRef, async (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
             setUserData(data);
             setBalance(data.balance || 0);
             setGoldBalance(data.goldBalance || 0);
             setLoading(false);
+            
+            if (!data.lastInvestmentCredit || 
+                new Date(data.lastInvestmentCredit.toDate()).toDateString() !== new Date().toDateString()) {
+              await processAllInvestmentsOnLogin(u.uid);
+            }
           } else {
             setError("User data not found.");
             setLoading(false);
@@ -1241,10 +1961,6 @@ const Dashboard = () => {
               <p className="metric">{goldBalance.toFixed(2)}g</p>
               <p className="subtext">Pure Gold</p>
             </div>
-
-
-
-            
             <div className="card">
               <h3>Total Value</h3>
               <p className="metric">${(balance + (goldBalance * (goldPrice || 65))).toLocaleString()}</p>
@@ -1395,7 +2111,7 @@ const Dashboard = () => {
         <div className="content-area">{renderContent()}</div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         /* Dashboard Styles */
         .dashboard-container {
           display: flex;
@@ -1528,7 +2244,7 @@ const Dashboard = () => {
           margin: 20px;
           border-radius: 12px;
           transition: all 0.3s ease;
-          box-shadow: 0 极 15px rgba(231, 76, 60, 0.3);
+          box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
         }
 
         .logout-btn:hover {
@@ -1549,7 +2265,7 @@ const Dashboard = () => {
           font-size: 24px;
           color: #2c3e50;
           cursor: pointer;
-          margin-right: 15极;
+          margin-right: 15px;
           padding: 8px;
           border-radius: 8px;
           background: white;
@@ -1591,7 +2307,7 @@ const Dashboard = () => {
           box-shadow: 0 2px 15px rgba(0,0,0,0.08);
           position: sticky;
           top: 0;
-          z极: 90;
+          z-index: 90;
         }
 
         .header-left {
@@ -1687,7 +2403,7 @@ const Dashboard = () => {
           margin-bottom: 25px;
           color: #2c3e50;
           position: relative;
-          padding-bottom极 15px;
+          padding-bottom: 15px;
         }
 
         .section-title::after {
@@ -1775,7 +2491,7 @@ const Dashboard = () => {
           padding: 12px;
           background: white;
           border-radius: 8px;
-          border: 1px极 #e9ecef;
+          border: 1px solid #e9ecef;
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -1805,8 +2521,8 @@ const Dashboard = () => {
           padding: 25px;
           background: white;
           border-radius: 16px;
-          box-shadow: 0 5px 20px rgba(0极0,0,0.05);
-          border: 1px solid #f1极3f4;
+          box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+          border: 1px solid #f1f3f4;
         }
 
         .setting-item {
@@ -1938,8 +2654,8 @@ const Dashboard = () => {
           margin: 15px 0;
         }
 
-        .极lan-description {
-          color: 7f8c8d;
+        .plan-description {
+          color: #7f8c8d;
           margin: 12px 0;
           line-height: 1.5;
         }
@@ -1980,7 +2696,7 @@ const Dashboard = () => {
         .balance-info {
           margin-bottom: 25px;
           padding: 15px 20px;
-          background: #极8f9fa;
+          background: #f8f9fa;
           border-radius: 12px;
           border: 1px solid #e9ecef;
         }
@@ -2037,7 +2753,7 @@ const Dashboard = () => {
         }
 
         .withdrawal-info li {
-          margin-bottom: 8极;
+          margin-bottom: 8px;
           color: #7f8c8d;
         }
 
@@ -2109,7 +2825,7 @@ const Dashboard = () => {
 
         .status-completed {
           background: #D4EDDA;
-          color极 #155724;
+          color: #155724;
         }
 
         .status-processing {
@@ -2129,7 +2845,7 @@ const Dashboard = () => {
           font-size: 14px;
         }
 
-        /* Investments Section */
+        /* Investments Section - Updated */
         .investments-container {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
@@ -2144,11 +2860,33 @@ const Dashboard = () => {
           box-shadow: 0 5px 20px rgba(0,0,0,0.08);
           border: 1px solid rgba(255,255,255,0.5);
           transition: all 0.3s ease;
+          position: relative;
         }
 
         .investment-card:hover {
           transform: translateY(-5px);
           box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+        }
+
+        .investment-card.completed-investment {
+          opacity: 0.7;
+          border-color: #27ae60;
+        }
+
+        .investment-card.completed-investment::after {
+          content: '✓';
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          background: #27ae60;
+          color: white;
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
         }
 
         .investment-header {
@@ -2195,11 +2933,45 @@ const Dashboard = () => {
           color: #2c3e50;
         }
 
+        .detail-value.status-active {
+          color: #27ae60;
+        }
+
+        .detail-value.status-completed {
+          color: #3498db;
+        }
+
+        .completed-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 16px;
+          background: #27ae60;
+          color: white;
+          border-radius: 20px;
+          font-weight: 600;
+          font-size: 14px;
+          margin-top: 15px;
+        }
+
+        .processing-indicator {
+          text-align: center;
+          padding: 20px;
+          color: #3498db;
+          font-weight: 600;
+          animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+
         /* Referral Section */
         .referral-container {
           padding: 25px;
           background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-          border-radius: 16极;
+          border-radius: 16px;
           border: 1px dashed #bdc3c7;
           margin-top: 25px;
           text-align: center;
@@ -2225,7 +2997,7 @@ const Dashboard = () => {
         }
 
         .referral-info ul {
-          margin: 15px 极 0 0;
+          margin: 15px 0 0 0;
           padding-left: 20px;
         }
 
@@ -2315,7 +3087,7 @@ const Dashboard = () => {
           height: 450px;
           background: white;
           border-radius: 16px;
-          box-shadow: 0 5px 25px rgba(0,0,0,极.15);
+          box-shadow: 0 5px 25px rgba(0,0,0,0.15);
           display: flex;
           flex-direction: column;
           z-index: 1000;
@@ -2324,7 +3096,7 @@ const Dashboard = () => {
 
         .chat-header {
           padding: 15px 20px;
-          background: linear-gradient(90deg, #2c3e50 0%, #4a6580 极00%);
+          background: linear-gradient(90deg, #2c3e50 0%, #4a6580 100%);
           color: white;
           display: flex;
           justify-content: space-between;
@@ -2413,7 +3185,7 @@ const Dashboard = () => {
           color: #e74c3c;
           font-size: 12px;
           margin-bottom: 10px;
-         极ext-align: center;
+          text-align: center;
         }
 
         .chat-input-container {
@@ -2451,7 +3223,7 @@ const Dashboard = () => {
           background: #2980b9;
         }
 
-        .chat-send-btn:极isabled {
+        .chat-send-btn:disabled {
           background: #bdc3c7;
           cursor: not-allowed;
         }
@@ -2528,7 +3300,7 @@ const Dashboard = () => {
           }
           
           .settings-container {
-            grid-template-columns: 1极;
+            grid-template-columns: 1fr;
           }
           
           .gold-plans-container {
