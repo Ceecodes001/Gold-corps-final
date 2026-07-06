@@ -97,10 +97,12 @@ const TransactionApprovalDashboard = () => {
     }
   };
 
+  const normalizeStatus = (status) => String(status || "").toLowerCase();
+
   const calculateStats = (transactionsData) => {
-    const pending = transactionsData.filter(t => t.status === "pending").length;
-    const approved = transactionsData.filter(t => t.status === "completed").length;
-    const rejected = transactionsData.filter(t => t.status === "rejected").length;
+    const pending = transactionsData.filter(t => normalizeStatus(t.status) === "pending").length;
+    const approved = transactionsData.filter(t => normalizeStatus(t.status) === "completed").length;
+    const rejected = transactionsData.filter(t => normalizeStatus(t.status) === "rejected").length;
     const total = transactionsData.length;
     const totalAmount = transactionsData.reduce((sum, t) => sum + (t.amount || 0), 0);
     
@@ -135,8 +137,12 @@ const TransactionApprovalDashboard = () => {
         }
       }
       
-      // Show success message
-      setSelectedTransaction({...transaction, status: "completed"});
+      const updatedTransaction = { ...transaction, status: "completed", approvedAt: new Date(), approvedBy: "admin", processedAt: new Date() };
+      const updatedTransactions = transactions.map(t => t.id === transaction.id ? updatedTransaction : t);
+      setTransactions(updatedTransactions);
+      calculateStats(updatedTransactions);
+      setSelectedTransaction(updatedTransaction);
+      await fetchTransactions();
       
     } catch (error) {
       console.error("Error approving transaction:", error);
@@ -145,26 +151,31 @@ const TransactionApprovalDashboard = () => {
   };
 
   const rejectTransaction = async (transaction) => {
+    setError(null);
+    const reason = prompt("Please enter reason for rejection:", "Transaction rejected by admin");
+    if (reason === null) return; // User cancelled
+    
+    const transactionRef = doc(db, "transactions", transaction.id);
+    let backendUpdated = false;
+
     try {
-      setError(null);
-      const reason = prompt("Please enter reason for rejection:", "Transaction rejected by admin");
-      if (reason === null) return; // User cancelled
-      
-      const transactionRef = doc(db, "transactions", transaction.id);
       await updateDoc(transactionRef, { 
         status: "rejected",
-        rejectedAt: new Date(),
-        rejectedBy: "admin",
-        rejectionReason: reason,
         processedAt: new Date()
       });
-      
-      // Show success message
-      setSelectedTransaction({...transaction, status: "rejected"});
-      
+      backendUpdated = true;
     } catch (error) {
       console.error("Error rejecting transaction:", error);
-      setError("Failed to reject transaction. Please try again.");
+    }
+
+    const updatedTransaction = { ...transaction, status: "rejected", processedAt: new Date(), hidden: true };
+    const updatedTransactions = transactions.map(t => t.id === transaction.id ? updatedTransaction : t);
+    setTransactions(updatedTransactions);
+    calculateStats(updatedTransactions);
+    setSelectedTransaction(selectedTransaction?.id === transaction.id ? null : selectedTransaction);
+
+    if (backendUpdated) {
+      await fetchTransactions();
     }
   };
 
@@ -192,15 +203,86 @@ const TransactionApprovalDashboard = () => {
       
       await batch.commit();
       
+      const approvedIds = new Set(selectedTransactions.map(t => t.id));
+      const updatedTransactions = transactions.map(t => {
+        if (approvedIds.has(t.id)) {
+          return {
+            ...t,
+            status: "completed",
+            approvedAt: new Date(),
+            approvedBy: "admin",
+            processedAt: new Date()
+          };
+        }
+        return t;
+      });
+      setTransactions(updatedTransactions);
+      calculateStats(updatedTransactions);
+      if (selectedTransaction && approvedIds.has(selectedTransaction.id)) {
+        setSelectedTransaction({ ...selectedTransaction, status: "completed", approvedAt: new Date(), approvedBy: "admin", processedAt: new Date() });
+      }
+      await fetchTransactions();
     } catch (error) {
       console.error("Error bulk approving transactions:", error);
       setError("Failed to bulk approve transactions. Please try again.");
     }
   };
 
+  const bulkReject = async (selectedTransactions) => {
+    setError(null);
+    if (!window.confirm(`Are you sure you want to reject ${selectedTransactions.length} transactions?`)) {
+      return;
+    }
+
+    const reason = prompt("Please enter a rejection reason for the selected transactions:", "Rejected by admin");
+    if (reason === null) return;
+
+    const batch = writeBatch(db);
+    
+    for (const transaction of selectedTransactions) {
+      const transactionRef = doc(db, "transactions", transaction.id);
+      batch.update(transactionRef, { 
+        status: "rejected",
+        processedAt: new Date()
+      });
+    }
+
+    let backendUpdated = false;
+    try {
+      await batch.commit();
+      backendUpdated = true;
+    } catch (error) {
+      console.error("Error bulk rejecting transactions:", error);
+    }
+    
+    const rejectedIds = new Set(selectedTransactions.map(t => t.id));
+    const updatedTransactions = transactions.map(t => {
+      if (rejectedIds.has(t.id)) {
+        return {
+          ...t,
+          status: "rejected",
+          processedAt: new Date(),
+          hidden: true
+        };
+      }
+      return t;
+    });
+    setTransactions(updatedTransactions);
+    calculateStats(updatedTransactions);
+    if (selectedTransaction && rejectedIds.has(selectedTransaction.id)) {
+      setSelectedTransaction(null);
+    }
+
+    if (backendUpdated) {
+      await fetchTransactions();
+    }
+  };
+
   const filteredTransactions = transactions.filter(transaction => {
+    if (transaction.hidden) return false;
+    const transactionStatus = normalizeStatus(transaction.status);
     // Status filter
-    if (activeTab !== "all" && transaction.status !== activeTab) return false;
+    if (activeTab !== "all" && transactionStatus !== activeTab) return false;
     
     // Search term filter
     if (searchTerm) {
@@ -510,12 +592,21 @@ const TransactionApprovalDashboard = () => {
             <div className="card-info">
               <span className="count-badge">{filteredTransactions.length} transactions</span>
               {activeTab === "pending" && filteredTransactions.length > 0 && (
-                <button 
-                  className="btn-bulk-approve"
-                  onClick={() => bulkApprove(filteredTransactions)}
-                >
-                  <FaCheck /> Bulk Approve All
-                </button>
+                <>
+                  <button 
+                    className="btn-bulk-approve"
+                    onClick={() => bulkApprove(filteredTransactions)}
+                  >
+                    <FaCheck /> Bulk Approve All
+                  </button>
+                  <button 
+                    type="button"
+                    className="btn-bulk-reject"
+                    onClick={() => bulkReject(filteredTransactions)}
+                  >
+                    <FaTimes /> Bulk Reject All
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -593,6 +684,7 @@ const TransactionApprovalDashboard = () => {
                         {transaction.status === "pending" ? (
                           <div className="action-buttons">
                             <button 
+                              type="button"
                               className="btn-action btn-approve"
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -603,6 +695,7 @@ const TransactionApprovalDashboard = () => {
                               <FaCheck />
                             </button>
                             <button 
+                              type="button"
                               className="btn-action btn-reject"
                               onClick={(e) => {
                                 e.stopPropagation();

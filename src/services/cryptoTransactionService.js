@@ -151,17 +151,22 @@ export const createGoldPurchase = async ({ userId, selectedPlan, depositAmount, 
   const newTransactionRef = await addDoc(collection(db, "transactions"), transactionData);
 
   if (approvalRequired) {
-    await addDoc(collection(db, "adminQueue"), {
-      transactionId: newTransactionRef.id,
-      userId,
-      type: "deposit",
-      depositMethod,
-      amount,
-      plan: selectedPlan.name,
-      status: "pending",
-      createdAt: serverTimestamp(),
-      notes: `Wire/check deposit requires admin approval for ${selectedPlan.name}`
-    });
+    try {
+      await addDoc(collection(db, "adminQueue"), {
+        transactionId: newTransactionRef.id,
+        userId,
+        type: "deposit",
+        depositMethod,
+        amount,
+        plan: selectedPlan.name,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        notes: `Wire/check deposit requires admin approval for ${selectedPlan.name}`
+      });
+    } catch (queueError) {
+      console.error("Failed to add transaction to admin queue:", queueError);
+      // The main transaction has already been created, so do not fail the user's deposit flow.
+    }
   } else {
     const userRef = doc(db, "users", userId);
     const userDoc = await getDoc(userRef);
