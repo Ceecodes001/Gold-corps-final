@@ -4,11 +4,6 @@ import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, query, where, o
 import { auth, db } from "../../firebase";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchGoldPrice as fetchGoldPriceFromService,
-  createGoldPurchase,
-  validateDepositAmount
-} from "../../services/cryptoTransactionService";
-import {
   FaSignOutAlt,
   FaUser,
   FaChartBar,
@@ -174,6 +169,7 @@ const ChatWindow = ({ user }) => {
   );
 };
 
+// GOLD PLANS - TEST PLAN REMOVED
 const GOLD_PLANS = [
   {
     id: 1,
@@ -201,17 +197,6 @@ const GOLD_PLANS = [
     max: Infinity,
     duration: 30,
     description: "For premium investors building a substantial portfolio"
-  },
-  // 🧪 TEST PLAN - Credits every 1 minute
-  {
-    id: 99,
-    name: "🧪 TEST PLAN (1-Minute)",
-    profitPercent: 10,
-    min: 1,
-    max: 1000,
-    duration: 5, // Will complete after 5 minutes
-    description: "⚠️ TEST PLAN ONLY - Credits every 1 minute for testing",
-    isTestPlan: true // Flag to identify test plan
   }
 ];
 
@@ -364,52 +349,53 @@ const SettingsSection = ({ user }) => {
   );
 };
 
-// Component for the Deposit section - Updated with all deposit methods
+// Component for the Deposit section - RECEIPT PREVIEW ONLY (NO STORAGE)
 const DepositSection = ({ user, updateBalance, goldPrice }) => {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [selectedWallet, setSelectedWallet] = useState(null);
-  const [depositConfirmed, setDepositConfirmed] = useState(false);
-  const [uploaded, setUploaded] = useState(false);
   const [transactionSuccess, setTransactionSuccess] = useState(false);
   const [error, setError] = useState(null);
   const [step, setStep] = useState(0);
   const [addressCopied, setAddressCopied] = useState(false);
   const [depositMethod, setDepositMethod] = useState("crypto");
   const [showMethodSelection, setShowMethodSelection] = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
     setDepositAmount("");
     setSelectedWallet(null);
-    setDepositConfirmed(false);
-    setUploaded(false);
     setTransactionSuccess(false);
     setError(null);
     setShowMethodSelection(false);
-    setStep(1); // Move directly to deposit amount entry after selecting a plan
+    setReceiptPreview(null);
+    setStep(1);
   };
 
   const handleMethodSelect = (method) => {
     setDepositMethod(method);
     if (method === "crypto") {
-      setStep(3); // Go to wallet selection
+      setStep(3);
     } else {
-      setStep(5); // Go to non-crypto method details
+      setStep(5);
     }
   };
 
   const handleAmountSubmit = () => {
     const amount = parseFloat(depositAmount);
-    const validation = validateDepositAmount(amount, selectedPlan);
-    if (!validation.valid) {
-      setError(validation.error);
+    if (isNaN(amount) || amount <= 0) {
+      setError("Please enter a valid amount greater than 0");
       return;
     }
-
+    if (amount < selectedPlan.min || (selectedPlan.max !== Infinity && amount > selectedPlan.max)) {
+      setError(`Please enter a valid amount between $${selectedPlan.min} and $${selectedPlan.max === Infinity ? 'unlimited' : selectedPlan.max}`);
+      return;
+    }
     setError(null);
     setShowMethodSelection(true);
-    setStep(2); // Advance to payment method selection after a valid amount
+    setStep(2);
   };
 
   const handleWalletSelect = (wallet) => {
@@ -417,48 +403,86 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
     setStep(4);
   };
 
-  const handleConfirmTransfer = async () => {
-    setDepositConfirmed(true);
-    await processTransaction();
+  // Handle file selection - PREVIEW ONLY, NO STORAGE
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Just create a preview - no upload to storage
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setReceiptPreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+      setError(null);
+    }
+  };
+
+  const removeReceipt = () => {
+    setReceiptPreview(null);
   };
 
   const processTransaction = async () => {
     if (!selectedPlan || !depositAmount || !goldPrice) return;
     setError(null);
+    setSubmitting(true);
 
     try {
       const amount = parseFloat(depositAmount);
-      const validation = validateDepositAmount(amount, selectedPlan);
-      if (!validation.valid) {
-        setError(validation.error);
-        return;
-      }
-
-      await createGoldPurchase({
+      const profitPercent = selectedPlan.profitPercent;
+      const interest = (amount * profitPercent / 100).toFixed(0);
+      
+      const startDate = new Date();
+      const nextPaymentDate = new Date();
+      nextPaymentDate.setDate(startDate.getDate() + selectedPlan.duration);
+      
+      const goldAllocation = amount / goldPrice;
+      
+      const transactionData = {
         userId: user.uid,
-        selectedPlan,
-        depositAmount: amount,
-        goldPrice,
-        selectedWallet,
-        depositMethod
-      });
+        type: "deposit",
+        amount: amount,
+        goldAmount: goldAllocation,
+        profitPercent: `${profitPercent}%`,
+        plan: selectedPlan.name,
+        planId: selectedPlan.id,
+        interest: `$${interest}`,
+        duration: selectedPlan.duration,
+        description: selectedPlan.description,
+        status: "pending",
+        timestamp: serverTimestamp(),
+        startDate: Timestamp.fromDate(startDate),
+        nextPaymentDate: Timestamp.fromDate(nextPaymentDate),
+        interestEarned: 0,
+        totalInterestEarned: 0,
+        walletType: selectedWallet ? selectedWallet.type : depositMethod,
+        walletAddress: selectedWallet ? selectedWallet.address : "N/A",
+        goldPriceAtPurchase: goldPrice,
+        daysCredited: 0,
+        isActive: true,
+        depositMethod: depositMethod,
+        adminApproved: false,
+        adminRejected: false,
+        rejectionReason: null
+      };
+
+      await addDoc(collection(db, "transactions"), transactionData);
 
       setTransactionSuccess(true);
       setStep(0);
       setSelectedPlan(null);
-      setDepositConfirmed(false);
-      setUploaded(false);
       setShowMethodSelection(false);
+      setReceiptPreview(null); // Clear preview after submission
+      
+      // Update balance display (still pending, but shows in history)
+      updateBalance(
+        user?.balance || 0,
+        user?.goldBalance || 0
+      );
     } catch (err) {
       setError("Failed to process transaction. Please try again.");
       console.error(err);
-    }
-  };
-
-  const handleFileChange = async (e) => {
-    if (e.target.files[0]) {
-      setUploaded(true);
-      await processTransaction();
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -491,6 +515,9 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
           <span className="success-message">
             <FaCheckCircle style={{ marginRight: "5px" }} /> Your deposit has been submitted and is awaiting admin approval.
           </span>
+          <p style={{ marginTop: "10px", color: "#7f8c8d" }}>
+            Admin will verify your payment. Please allow up to 24 hours for processing.
+          </p>
           <button
             className="btn-secondary"
             onClick={() => {
@@ -509,17 +536,14 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
             {GOLD_PLANS.map(plan => (
               <div
                 key={plan.id}
-                className={`gold-plan-card ${selectedPlan?.id === plan.id ? 'selected-plan' : ''} ${plan.isTestPlan ? 'test-plan-card' : ''}`}
+                className={`gold-plan-card ${selectedPlan?.id === plan.id ? 'selected-plan' : ''}`}
                 onClick={() => handlePlanSelect(plan)}
               >
                 <FaCoins size={36} color="#D4AF37" />
                 <h3 className="plan-title">{plan.name}</h3>
                 <p className="plan-price">${plan.min}  - {plan.max === Infinity ? 'and above' : plan.max} USD</p>
-                <p className="plan-description"><strong>Profit:</strong> {plan.profitPercent}% every {plan.duration} {plan.isTestPlan ? 'minutes' : 'days'}</p>
+                <p className="plan-description"><strong>Profit:</strong> {plan.profitPercent}% every {plan.duration} days</p>
                 <p className="plan-description">{plan.description}</p>
-                {plan.isTestPlan && (
-                  <div className="test-badge-plan">🧪 Test Plan</div>
-                )}
               </div>
             ))}
           </div>
@@ -554,26 +578,26 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
         <>
           <h3>Select a Deposit Method</h3>
           <div className="deposit-methods-grid">
-            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("crypto")}>
+            <div className="deposit-method-card" onClick={() => handleMethodSelect("crypto")}>
               <FaBitcoin size={36} color="#F7931A" />
               <h4>Cryptocurrency</h4>
               <p>BTC, ETH, USDT, DOGE, TRX, LTC</p>
-            </button>
-            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("wire")}>
+            </div>
+            <div className="deposit-method-card" onClick={() => handleMethodSelect("wire")}>
               <FaUniversity size={36} color="#2C3E50" />
               <h4>Wire Transfer</h4>
               <p>Bank to bank transfer</p>
-            </button>
-            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("check")}>
+            </div>
+            <div className="deposit-method-card" onClick={() => handleMethodSelect("check")}>
               <FaMoneyCheck size={36} color="#27AE60" />
               <h4>Cashier's Check</h4>
               <p>Certified bank check</p>
-            </button>
-            <button type="button" className="deposit-method-card" onClick={() => handleMethodSelect("cash")}>
+            </div>
+            <div className="deposit-method-card" onClick={() => handleMethodSelect("cash")}>
               <FaMoneyBillWave size={36} color="#F39C12" />
               <h4>Cash & Money Orders</h4>
               <p>Cash deposits & money orders</p>
-            </button>
+            </div>
           </div>
           <button className="btn-secondary" onClick={() => setStep(1)}>
             Back
@@ -582,12 +606,11 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
       ) : step === 3 ? (
         <>
           <h3>Select a Cryptocurrency Wallet</h3>
-          <p>After clicking the Cryptocurrency button, choose your wallet and send the exact amount to one of the supported addresses below.</p>
+          <p>Select your wallet and send the exact amount to the address below.</p>
           <div className="gold-plans-container">
             {CRYPTO_WALLETS.map((wallet, index) => (
-              <button
+              <div
                 key={index}
-                type="button"
                 className={`gold-plan-card ${selectedWallet?.type === wallet.type ? 'selected-plan' : ''}`}
                 onClick={() => handleWalletSelect(wallet)}
               >
@@ -597,20 +620,21 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
                 {!wallet.type.includes("Bitcoin") && !wallet.type.includes("Ethereum") && !wallet.type.includes("USDT") && <FaWallet size={36} color="#D4AF37" />}
                 <h3 className="plan-title">{wallet.type}</h3>
                 <p className="plan-description" style={{fontSize: '12px', wordBreak: 'break-all'}}>{wallet.address.substring(0, 20)}...</p>
-              </button>
+              </div>
             ))}
           </div>
           <button className="btn-secondary" onClick={() => setStep(2)}>
-            Back
+            Back to Methods
           </button>
         </>
       ) : step === 4 ? (
         <>
           <h3>Selected Plan: {selectedPlan.name}</h3>
-          <p>Amount: ${depositAmount}</p>
+          <p><strong>Amount:</strong> ${depositAmount}</p>
           {goldPrice && (
-            <p>Gold Allocation: {(parseFloat(depositAmount) / goldPrice).toFixed(4)}g</p>
+            <p><strong>Gold Allocation:</strong> {(parseFloat(depositAmount) / goldPrice).toFixed(4)}g</p>
           )}
+          <p><strong>Wallet:</strong> {selectedWallet.type}</p>
           <p>Please send exactly <strong>${depositAmount}</strong> to the following address:</p>
           <div className="deposit-address">
             <p><strong>{selectedWallet.type} Address:</strong></p>
@@ -619,16 +643,49 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
               {addressCopied ? "Copied!" : "Copy Address"} <FaCopy style={{ marginLeft: "5px" }} />
             </button>
           </div>
-          <p>After completing your transfer, click the button below to confirm.</p>
+
+          {/* RECEIPT PREVIEW - NO STORAGE */}
+          <div className="receipt-preview-section">
+            <h4>Payment Confirmation (Optional Preview)</h4>
+            <p>You can upload a screenshot to preview it for your own records. It will not be stored.</p>
+            
+            {!receiptPreview ? (
+              <div className="file-preview-area">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  id="receipt-preview"
+                  style={{ display: 'none' }}
+                />
+                <label htmlFor="receipt-preview" className="file-preview-label">
+                  <FaUpload size={24} />
+                  <span>Click to preview receipt</span>
+                  <span className="file-types">(Just for your own preview - not stored)</span>
+                </label>
+              </div>
+            ) : (
+              <div className="receipt-preview-container">
+                <img src={receiptPreview} alt="Receipt preview" className="receipt-preview-image" />
+                <button type="button" className="remove-preview-btn" onClick={removeReceipt}>
+                  Remove Preview
+                </button>
+                <p className="preview-note">✓ This preview is only visible to you and will not be stored</p>
+              </div>
+            )}
+          </div>
+
           <button
             className="btn-primary"
-            onClick={handleConfirmTransfer}
+            onClick={processTransaction}
+            disabled={submitting}
           >
-            I've Sent the Payment
+            {submitting ? "Submitting..." : "Submit for Approval"}
           </button>
           <button
             className="btn-secondary"
             onClick={() => setStep(3)}
+            disabled={submitting}
           >
             Choose Different Wallet
           </button>
@@ -670,6 +727,37 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
                 </>
               )}
             </div>
+
+            {/* RECEIPT PREVIEW - NO STORAGE */}
+            <div className="receipt-preview-section">
+              <h4>Payment Confirmation (Optional Preview)</h4>
+              <p>You can upload a screenshot to preview it for your own records. It will not be stored.</p>
+              
+              {!receiptPreview ? (
+                <div className="file-preview-area">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    id="receipt-preview-alt"
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="receipt-preview-alt" className="file-preview-label">
+                    <FaUpload size={24} />
+                    <span>Click to preview receipt</span>
+                    <span className="file-types">(Just for your own preview - not stored)</span>
+                  </label>
+                </div>
+              ) : (
+                <div className="receipt-preview-container">
+                  <img src={receiptPreview} alt="Receipt preview" className="receipt-preview-image" />
+                  <button type="button" className="remove-preview-btn" onClick={removeReceipt}>
+                    Remove Preview
+                  </button>
+                  <p className="preview-note">✓ This preview is only visible to you and will not be stored</p>
+                </div>
+              )}
+            </div>
             
             <div className="support-contact">
               <button className="btn-primary" onClick={handleSupportContact}>
@@ -677,18 +765,16 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
               </button>
             </div>
             
-            <p style={{marginTop: '20px', color: '#7f8c8d'}}>After completing your payment, click the button below to confirm.</p>
             <button
               className="btn-primary"
-              onClick={() => {
-                setDepositConfirmed(true);
-                processTransaction();
-              }}
+              onClick={processTransaction}
+              disabled={submitting}
+              style={{ marginTop: '20px', width: '100%' }}
             >
-              I've Sent the Payment
+              {submitting ? "Submitting..." : "Submit for Approval"}
             </button>
           </div>
-          <button className="btn-secondary" onClick={() => setStep(2)}>
+          <button className="btn-secondary" onClick={() => setStep(2)} disabled={submitting}>
             Back to Methods
           </button>
         </>
@@ -706,14 +792,15 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
         <h3>Important Information</h3>
         <ul>
           <li>All deposits are subject to verification and compliance review.</li>
+          <li>Admin will verify your payment before approval.</li>
           <li>Processing times vary depending on the selected payment method.</li>
-          <li>Funds will be credited to your account only after successful confirmation and approval.</li>
+          <li>Funds will be credited to your account only after admin approval.</li>
           <li>Please ensure all payment details are entered accurately to avoid processing delays.</li>
           <li>If you have any questions before making a deposit, please contact our support team for assistance.</li>
         </ul>
       </div>
       
-      <style>{`
+      <style jsx>{`
         .deposit-methods-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -806,26 +893,97 @@ const DepositSection = ({ user, updateBalance, goldPrice }) => {
           margin: 20px 0;
         }
         
-        .test-plan-card {
-          border: 2px solid #ff9800;
-          position: relative;
-        }
-        
-        .test-badge-plan {
-          display: inline-block;
-          background: #ff9800;
-          color: white;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 12px;
-          margin-top: 10px;
-        }
-        
         .deposit-method-info {
           background: white;
           padding: 20px;
           border-radius: 12px;
           margin: 20px 0;
+        }
+
+        /* Receipt Preview Styles - No Storage */
+        .receipt-preview-section {
+          margin: 20px 0;
+          padding: 20px;
+          background: #f8f9fa;
+          border-radius: 12px;
+          border: 1px solid #e9ecef;
+        }
+
+        .receipt-preview-section h4 {
+          margin: 0 0 10px 0;
+          color: #2c3e50;
+        }
+
+        .file-preview-area {
+          border: 2px dashed #bdc3c7;
+          border-radius: 12px;
+          padding: 30px;
+          text-align: center;
+          transition: all 0.3s ease;
+          cursor: pointer;
+        }
+
+        .file-preview-area:hover {
+          border-color: #3498db;
+          background: #f0f8ff;
+        }
+
+        .file-preview-label {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+          cursor: pointer;
+        }
+
+        .file-preview-label svg {
+          color: #3498db;
+        }
+
+        .file-preview-label span {
+          font-size: 14px;
+          color: #2c3e50;
+        }
+
+        .file-preview-label .file-types {
+          font-size: 12px;
+          color: #7f8c8d;
+        }
+
+        .receipt-preview-container {
+          position: relative;
+          margin: 10px 0;
+          text-align: center;
+        }
+
+        .receipt-preview-image {
+          max-width: 100%;
+          max-height: 300px;
+          border-radius: 8px;
+          border: 1px solid #ddd;
+        }
+
+        .remove-preview-btn {
+          display: inline-block;
+          margin-top: 10px;
+          background: #dc3545;
+          color: white;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+
+        .remove-preview-btn:hover {
+          background: #c82333;
+        }
+
+        .preview-note {
+          margin-top: 10px;
+          font-size: 13px;
+          color: #27ae60;
+          font-weight: 500;
         }
       `}</style>
     </div>
@@ -1144,53 +1302,34 @@ const ReferralSection = ({ user }) => {
   );
 };
 
-// Component for Investments Section - UPDATED with automatic crediting and 1-minute test support
+// Component for Investments Section - UPDATED (TEST PLAN REMOVED)
 const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
   const [investments, setInvestments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [lastCredited, setLastCredited] = useState(null);
-  const [testMode, setTestMode] = useState(false);
   const [creditLogs, setCreditLogs] = useState([]);
 
   // Function to calculate and credit interest automatically
   const processInvestmentInterest = async () => {
     console.log('🔍 Checking for investment credits...');
-    console.log(`👤 User: ${user?.email || user?.uid}`);
     
     if (!user || !investments.length) {
       console.log('❌ No user or no investments found');
       return;
     }
 
-    const activeInvestments = investments.filter(inv => inv.isActive !== false);
+    const activeInvestments = investments.filter(inv => inv.isActive !== false && inv.isTestPlan !== true);
     console.log(`📊 Found ${activeInvestments.length} active investments`);
     
     if (activeInvestments.length === 0) {
       console.log('ℹ️ No active investments to process');
-      setProcessing(false);
       return;
     }
-
-    // Log each investment details
-    activeInvestments.forEach((inv, index) => {
-      console.log(`💰 Investment ${index + 1}:`, {
-        id: inv.id,
-        plan: inv.plan,
-        amount: inv.amount,
-        daysCredited: inv.daysCredited || 0,
-        duration: inv.duration,
-        isTestPlan: inv.isTestPlan || false,
-        lastCreditedDate: inv.lastCreditedDate?.toDate?.() || 'Not set',
-        isActive: inv.isActive
-      });
-    });
 
     try {
       setProcessing(true);
       
-      // Process each investment
       for (const investment of activeInvestments) {
         await processSingleInvestment(investment);
       }
@@ -1220,18 +1359,13 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
         
         const invData = investmentDoc.data();
         
-        // Check if this is a test plan
-        const isTestPlan = invData.isTestPlan || false;
-        
         console.log(`📈 Investment ${investment.id} current state:`, {
           daysCredited: invData.daysCredited || 0,
           duration: invData.duration,
           isActive: invData.isActive,
-          isTestPlan: isTestPlan,
           lastCreditedDate: invData.lastCreditedDate?.toDate?.() || 'Never'
         });
         
-        // Check if investment is still active
         if (invData.isActive === false) {
           console.log(`⏹️ Investment ${investment.id} is already completed`);
           return;
@@ -1249,59 +1383,37 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
           return;
         }
         
-        // Calculate time since last credit
         const lastCreditedDate = invData.lastCreditedDate?.toDate() || invData.startDate?.toDate() || new Date();
         const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const lastDate = new Date(lastCreditedDate.getFullYear(), lastCreditedDate.getMonth(), lastCreditedDate.getDate());
         
-        let timeElapsed;
-        let creditInterval;
+        const elapsedDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+        console.log(`📅 Days since last credit: ${elapsedDays}`);
         
-        if (isTestPlan) {
-          // Test plan: credit every minute
-          const minutesElapsed = Math.floor((now - lastCreditedDate) / (1000 * 60));
-          timeElapsed = minutesElapsed;
-          creditInterval = 1; // 1 minute
-          console.log(`⏱️ Test plan: ${minutesElapsed} minutes since last credit`);
-        } else {
-          // Normal plan: credit every day
-          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          const lastDate = new Date(lastCreditedDate.getFullYear(), lastCreditedDate.getMonth(), lastCreditedDate.getDate());
-          const daysElapsed = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
-          timeElapsed = daysElapsed;
-          creditInterval = 1; // 1 day
-          console.log(`📅 Normal plan: ${daysElapsed} days since last credit`);
-        }
-        
-        // If less than interval has passed, skip
-        if (timeElapsed < creditInterval) {
-          console.log(`⏳ Less than ${creditInterval} ${isTestPlan ? 'minute' : 'day'} passed, skipping credit for ${investment.id}`);
+        if (elapsedDays < 1) {
+          console.log(`⏳ Less than 1 day passed, skipping credit for ${investment.id}`);
           return;
         }
         
-        // Calculate how many intervals to credit (don't exceed total duration)
-        const remainingIntervals = totalDuration - daysCredited;
-        const intervalsToCredit = Math.min(Math.floor(timeElapsed / creditInterval), remainingIntervals);
+        const remainingDays = totalDuration - daysCredited;
+        const daysToCredit = Math.min(elapsedDays, remainingDays);
         
-        console.log(`📆 Intervals to credit: ${intervalsToCredit}`);
+        console.log(`📆 Days to credit: ${daysToCredit}`);
         
-        if (intervalsToCredit <= 0) {
-          console.log(`ℹ️ No intervals to credit for ${investment.id}`);
+        if (daysToCredit <= 0) {
+          console.log(`ℹ️ No days to credit for ${investment.id}`);
           return;
         }
         
-        // Calculate earnings
         const profitPercent = parseFloat(invData.profitPercent) || 0;
         const amount = invData.amount || 0;
         const totalInterest = (amount * profitPercent) / 100;
         const dailyInterest = totalInterest / totalDuration;
+        const earnings = dailyInterest * daysToCredit;
         
-        // For test plans, we credit per minute, so divide daily interest by 1440 (minutes in a day)
-        const intervalInterest = isTestPlan ? dailyInterest / 1440 : dailyInterest;
-        const earnings = intervalInterest * intervalsToCredit;
+        console.log(`💰 Calculated earnings: $${earnings.toFixed(4)}`);
         
-        console.log(`💰 Calculated earnings: $${earnings.toFixed(6)} (${intervalsToCredit} intervals × $${intervalInterest.toFixed(6)}/interval)`);
-        
-        // Get current user data
         const userRef = doc(db, "users", user.uid);
         const userDoc = await transaction.get(userRef);
         
@@ -1311,21 +1423,24 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
         }
         
         const currentBalance = userDoc.data().balance || 0;
+        const currentGoldBalance = userDoc.data().goldBalance || 0;
+        const goldPriceUsed = invData.goldPriceAtPurchase || goldPrice || 65;
+        const goldEarnings = earnings / goldPriceUsed;
+        
         console.log(`💵 Current balance: $${currentBalance.toFixed(2)}`);
         console.log(`➕ New balance will be: $${(currentBalance + earnings).toFixed(2)}`);
         
-        // Update user's balance
         transaction.update(userRef, {
           balance: currentBalance + earnings,
-          lastInvestmentCredit: Timestamp.fromDate(now)
+          goldBalance: currentGoldBalance + goldEarnings,
+          lastInvestmentCredit: Timestamp.fromDate(today)
         });
         
-        // Update investment document
-        const newDaysCredited = daysCredited + intervalsToCredit;
+        const newDaysCredited = daysCredited + daysToCredit;
         const isComplete = newDaysCredited >= totalDuration;
         
         transaction.update(investmentRef, {
-          lastCreditedDate: Timestamp.fromDate(now),
+          lastCreditedDate: Timestamp.fromDate(today),
           daysCredited: newDaysCredited,
           interestEarned: earnings,
           totalInterestEarned: (invData.totalInterestEarned || 0) + earnings,
@@ -1336,31 +1451,32 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
         console.log(`📊 Days credited: ${daysCredited} → ${newDaysCredited}`);
         console.log(`📊 Total interest earned: $${((invData.totalInterestEarned || 0) + earnings).toFixed(2)}`);
         
-        // Create transaction record
         const creditTransactionRef = doc(collection(db, "transactions"));
         transaction.set(creditTransactionRef, {
           userId: user.uid,
           type: "interest_credit",
           amount: earnings,
-          description: `Interest from ${invData.plan || 'Investment'} (${intervalsToCredit} ${isTestPlan ? 'minutes' : 'days'})`,
+          goldAmount: goldEarnings,
+          description: `Interest from ${invData.plan || 'Investment'} (${daysToCredit} days)`,
           investmentId: investment.id,
           status: "completed",
-          timestamp: Timestamp.fromDate(now),
-          isTestPlan: isTestPlan
+          timestamp: Timestamp.fromDate(today)
         });
         
         if (isComplete) {
           console.log(`🏁 Investment ${investment.id} is now complete!`);
         }
         
-        // Update credit logs for UI
         setCreditLogs(prev => [...prev, {
           timestamp: new Date(),
           investment: invData.plan,
           amount: earnings,
-          intervals: intervalsToCredit,
+          days: daysToCredit,
           totalEarned: (invData.totalInterestEarned || 0) + earnings
         }]);
+        
+        // Update balance in UI
+        updateBalance(currentBalance + earnings, currentGoldBalance + goldEarnings);
       });
       
     } catch (err) {
@@ -1369,40 +1485,17 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
     }
   };
 
-  // Set up automatic crediting with interval for test plans
+  // Set up daily credit check
   useEffect(() => {
     if (user && investments.length > 0) {
-      // Check for test plans
-      const hasTestPlan = investments.some(inv => inv.isTestPlan === true && inv.isActive !== false);
+      const today = new Date().toDateString();
+      const lastCreditDate = localStorage.getItem(`lastCredit_${user.uid}`);
       
-      if (hasTestPlan) {
-        console.log('🧪 Test plan detected! Setting up 1-minute credit interval...');
-        setTestMode(true);
-        
-        // Process immediately on mount
-        processInvestmentInterest();
-        
-        // Set up interval to check every minute for test plans
-        const intervalId = setInterval(() => {
-          console.log('⏰ Running scheduled credit check (every 1 minute)...');
-          processInvestmentInterest();
-        }, 60000); // 1 minute
-        
-        return () => {
-          console.log('🧹 Cleaning up test interval');
-          clearInterval(intervalId);
-        };
-      } else {
-        // Normal plans: check daily using localStorage
-        const today = new Date().toDateString();
-        const lastCreditDate = localStorage.getItem(`lastCredit_${user.uid}`);
-        
-        if (lastCreditDate !== today) {
-          console.log('📅 Processing daily credits...');
-          processInvestmentInterest().then(() => {
-            localStorage.setItem(`lastCredit_${user.uid}`, today);
-          });
-        }
+      if (lastCreditDate !== today) {
+        console.log('📅 Processing daily credits...');
+        processInvestmentInterest().then(() => {
+          localStorage.setItem(`lastCredit_${user.uid}`, today);
+        });
       }
     }
   }, [user, investments]);
@@ -1445,7 +1538,6 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
     const daysCredited = investment.daysCredited || 0;
     const totalDuration = investment.duration || 0;
     if (daysCredited >= totalDuration) return "Completed";
-    if (investment.isTestPlan) return "Testing (1-min credits)";
     return "Active";
   };
 
@@ -1459,10 +1551,7 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
 
   return (
     <div className="section-card">
-      <h2 className="section-title">
-        My Investments
-        {testMode && <span className="test-badge">🧪 TEST MODE ACTIVE</span>}
-      </h2>
+      <h2 className="section-title">My Investments</h2>
       
       {creditLogs.length > 0 && (
         <div className="credit-logs">
@@ -1472,7 +1561,7 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
               <div key={index} className="log-entry">
                 <span className="log-time">{log.timestamp.toLocaleTimeString()}</span>
                 <span className="log-investment">{log.investment}</span>
-                <span className="log-amount">+${log.amount.toFixed(6)}</span>
+                <span className="log-amount">+${log.amount.toFixed(4)}</span>
                 <span className="log-total">Total: ${log.totalEarned.toFixed(2)}</span>
               </div>
             ))}
@@ -1491,15 +1580,11 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
               const daysRemaining = Math.max(0, totalDuration - daysCredited);
               const isComplete = investment.isActive === false || daysCredited >= totalDuration;
               const totalInterestEarned = investment.totalInterestEarned || 0;
-              const isTestPlan = investment.isTestPlan || false;
               
               return (
-                <div key={investment.id} className={`investment-card ${isComplete ? 'completed-investment' : ''} ${isTestPlan ? 'test-investment' : ''}`}>
+                <div key={investment.id} className={`investment-card ${isComplete ? 'completed-investment' : ''}`}>
                   <div className="investment-header">
-                    <h3>
-                      {investment.plan || 'Investment'}
-                      {isTestPlan && <span className="test-label">🧪 TEST</span>}
-                    </h3>
+                    <h3>{investment.plan || 'Investment'}</h3>
                     <span className="investment-amount">${investment.amount?.toLocaleString() || 'N/A'}</span>
                   </div>
                   
@@ -1516,7 +1601,7 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
                     
                     <div className="investment-detail">
                       <span className="detail-label">Duration:</span>
-                      <span className="detail-value">{investment.duration || 'N/A'} {isTestPlan ? 'minutes' : 'days'}</span>
+                      <span className="detail-value">{investment.duration || 'N/A'} days</span>
                     </div>
                     
                     <div className="investment-detail">
@@ -1547,13 +1632,6 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
                     </div>
                   </div>
                   
-                  {isTestPlan && !isComplete && (
-                    <div className="test-indicator">
-                      <span className="pulse-dot"></span>
-                      Auto-crediting every minute...
-                    </div>
-                  )}
-                  
                   {isComplete && (
                     <div className="completed-badge">
                       <FaCheckCircle /> Investment Complete
@@ -1569,92 +1647,10 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
               Processing investment credits...
             </div>
           )}
-          
-          {/* Test Controls */}
-          {testMode && (
-            <div className="test-controls">
-              <button 
-                onClick={() => {
-                  console.log('🧪 Manual credit trigger...');
-                  processInvestmentInterest();
-                }}
-                className="btn-primary"
-                disabled={processing}
-              >
-                🔄 Manually Trigger Credit
-              </button>
-              <button 
-                onClick={() => {
-                  setCreditLogs([]);
-                  console.log('🧹 Credit logs cleared');
-                }}
-                className="btn-secondary"
-              >
-                Clear Logs
-              </button>
-            </div>
-          )}
         </>
       )}
       
-      <style>{`
-        .test-badge {
-          display: inline-block;
-          background: #ff9800;
-          color: white;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 12px;
-          margin-left: 12px;
-          animation: pulse 2s ease-in-out infinite;
-        }
-        
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-        
-        .test-investment {
-          border: 2px solid #ff9800;
-          background: linear-gradient(135deg, #fff8e1 0%, #ffffff 100%);
-        }
-        
-        .test-label {
-          display: inline-block;
-          background: #ff9800;
-          color: white;
-          padding: 2px 8px;
-          border-radius: 12px;
-          font-size: 10px;
-          margin-left: 8px;
-        }
-        
-        .test-indicator {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 12px;
-          background: #fff3e0;
-          border-radius: 8px;
-          margin-top: 15px;
-          font-size: 14px;
-          color: #e65100;
-        }
-        
-        .pulse-dot {
-          display: inline-block;
-          width: 10px;
-          height: 10px;
-          background: #4caf50;
-          border-radius: 50%;
-          animation: pulse-dot 1s ease-in-out infinite;
-        }
-        
-        @keyframes pulse-dot {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(0.8); }
-        }
-        
+      <style jsx>{`
         .credit-logs {
           background: #f5f5f5;
           padding: 15px;
@@ -1701,13 +1697,126 @@ const InvestmentsSection = ({ user, updateBalance, goldPrice }) => {
           color: #2196f3;
           min-width: 100px;
         }
-        
-        .test-controls {
-          display: flex;
-          gap: 10px;
+
+        .investments-container {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+          gap: 25px;
           margin-top: 20px;
-          padding-top: 20px;
-          border-top: 1px solid #e0e0e0;
+        }
+
+        .investment-card {
+          background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+          padding: 25px;
+          border-radius: 16px;
+          box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+          border: 1px solid rgba(255,255,255,0.5);
+          transition: all 0.3s ease;
+          position: relative;
+        }
+
+        .investment-card:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+        }
+
+        .investment-card.completed-investment {
+          opacity: 0.7;
+          border-color: #27ae60;
+        }
+
+        .investment-card.completed-investment::after {
+          content: '✓';
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          background: #27ae60;
+          color: white;
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+        }
+
+        .investment-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+          padding-bottom: 15px;
+          border-bottom: 1px solid #e9ecef;
+        }
+
+        .investment-header h3 {
+          margin: 0;
+          color: #2c3e50;
+          font-size: 18px;
+        }
+
+        .investment-amount {
+          font-size: 20px;
+          font-weight: 700;
+          color: #27ae60;
+        }
+
+        .investment-details {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .investment-detail {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .detail-label {
+          font-weight: 600;
+          color: #7f8c8d;
+        }
+
+        .detail-value {
+          font-weight: 600;
+          color: #2c3e50;
+        }
+
+        .detail-value.status-active {
+          color: #27ae60;
+        }
+
+        .detail-value.status-completed {
+          color: #3498db;
+        }
+
+        .completed-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 16px;
+          background: #27ae60;
+          color: white;
+          border-radius: 20px;
+          font-weight: 600;
+          font-size: 14px;
+          margin-top: 15px;
+        }
+
+        .processing-indicator {
+          text-align: center;
+          padding: 20px;
+          color: #3498db;
+          font-weight: 600;
+          animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
         }
       `}</style>
     </div>
@@ -1727,16 +1836,56 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [goldPrice, setGoldPrice] = useState(null);
   const [goldPriceError, setGoldPriceError] = useState(null);
+  const API_KEY = "f369cba8b4f18e797805679cfb09562b";
+  const CURRENCY = "USD";
 
+  // Function to fetch gold price
   const fetchGoldPrice = async () => {
     try {
-      const price = await fetchGoldPriceFromService();
-      setGoldPrice(price);
-      setGoldPriceError(null);
+      const cachedData = localStorage.getItem('goldPriceData');
+      if (cachedData) {
+        const { price, timestamp } = JSON.parse(cachedData);
+        const now = new Date().getTime();
+        const twelveHours = 12 * 60 * 60 * 1000;
+        
+        if (now - timestamp < twelveHours) {
+          setGoldPrice(price);
+          return;
+        }
+      }
+
+      const res = await fetch(
+        `https://api.metalpriceapi.com/v1/latest?api_key=${API_KEY}&base=XAU&currencies=${CURRENCY}`
+      );
+      
+      if (!res.ok) throw new Error("Failed to fetch gold price");
+
+      const data = await res.json();
+      
+      if (data.rates && data.rates[CURRENCY]) {
+        const pricePerGram = data.rates[CURRENCY] / 28.3495;
+        setGoldPrice(pricePerGram);
+        
+        localStorage.setItem('goldPriceData', JSON.stringify({
+          price: pricePerGram,
+          timestamp: new Date().getTime()
+        }));
+        
+        setGoldPriceError(null);
+      } else {
+        throw new Error("Invalid API response format");
+      }
     } catch (err) {
       console.error("Error fetching gold price:", err);
       setGoldPriceError("Failed to fetch current gold price. Using default value.");
-      setGoldPrice(null);
+      
+      const cachedData = localStorage.getItem('goldPriceData');
+      if (cachedData) {
+        const { price } = JSON.parse(cachedData);
+        setGoldPrice(price);
+      } else {
+        setGoldPrice(119.50);
+      }
     }
   };
 
@@ -1768,7 +1917,7 @@ const Dashboard = () => {
       const querySnapshot = await getDocs(investmentsQuery);
       const activeInvestments = querySnapshot.docs.filter(doc => {
         const data = doc.data();
-        return data.isActive !== false && (data.daysCredited || 0) < (data.duration || 0);
+        return data.isActive !== false && (data.daysCredited || 0) < (data.duration || 0) && data.isTestPlan !== true;
       });
       
       if (activeInvestments.length === 0) {
@@ -2111,7 +2260,8 @@ const Dashboard = () => {
         <div className="content-area">{renderContent()}</div>
       </div>
 
-      <style>{`
+    
+      <style jsx>{`
         /* Dashboard Styles */
         .dashboard-container {
           display: flex;
